@@ -113,6 +113,10 @@ export const scannerApi = {
     return requestJson("/api/catalog/samples");
   },
 
+  searchCatalogByName(query: string): Promise<{ results: BarcodeCatalogInfo[] }> {
+    return requestJson(`/api/catalog/search?q=${encodeURIComponent(query)}`);
+  },
+
   listCategories(): Promise<{ categories: string[] }> {
     return requestJson("/api/categories");
   },

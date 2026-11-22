@@ -14,11 +14,13 @@ import {
   CheckCircle2,
   Flashlight,
   FolderPlus,
+  Globe,
   Minus,
   Package,
   Plus,
   RefreshCw,
   ScanBarcode,
+  Search,
   Sparkles,
   Tag,
   Volume2,
@@ -29,10 +31,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarcodeDetector as BarcodeDetectorPolyfill } from "barcode-detector/pure";
 import { createWorker, type Worker as TesseractWorker } from "tesseract.js";
 import type {
+  BarcodeCatalogInfo,
   DuplicateScanBehavior,
   LiveScanResponse,
 } from "@/types/scanner";
-import type { CatalogSampleItem } from "@/services/scannerApi";
+import { scannerApi, type CatalogSampleItem } from "@/services/scannerApi";
 import {
   capturePriceRoiToDataUrl,
   extractPricesFromOcrText,
@@ -67,6 +70,9 @@ interface LiveCameraScannerProps {
     expirationDate?: string | null;
     productName?: string;
     productCategory?: string;
+    productDescription?: string;
+    brand?: string;
+    productImageUrl?: string;
     quantityDelta?: number;
     priceSource?: "ocr" | "manual" | "catalog";
   }) => Promise<LiveScanResponse | null>;
@@ -167,8 +173,17 @@ export default function LiveCameraScanner({
   // Entrada manual rápida / pistola leitora
   const [manualBarcode, setManualBarcode] = useState("");
   const [manualName, setManualName] = useState("");
+  const [manualDescription, setManualDescription] = useState("");
+  const [manualBrand, setManualBrand] = useState("");
+  const [manualImageUrl, setManualImageUrl] = useState("");
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
   const [applyingToLast, setApplyingToLast] = useState(false);
+
+  // Pesquisa de produto na internet por nome/marca
+  const [internetSearchQuery, setInternetSearchQuery] = useState("");
+  const [internetResults, setInternetResults] = useState<BarcodeCatalogInfo[]>([]);
+  const [isSearchingInternet, setIsSearchingInternet] = useState(false);
+  const [internetSearchDone, setInternetSearchDone] = useState(false);
 
   // Simulador de Gôndola ao Vivo
   const [autoSimulateShelf, setAutoSimulateShelf] = useState(false);
@@ -584,6 +599,76 @@ export default function LiveCameraScanner({
     finalizeAfterScan,
   ]);
 
+  const handleInternetSearch = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const q = internetSearchQuery.trim();
+    if (q.length < 2) return;
+    setIsSearchingInternet(true);
+    setInternetSearchDone(false);
+    try {
+      const { results } = await scannerApi.searchCatalogByName(q);
+      setInternetResults(results);
+      setInternetSearchDone(true);
+    } catch {
+      setInternetResults([]);
+      setInternetSearchDone(true);
+    } finally {
+      setIsSearchingInternet(false);
+    }
+  };
+
+  const applyInternetResult = async (
+    item: BarcodeCatalogInfo,
+    captureImmediately: boolean,
+  ) => {
+    const codeToUse = item.barcode || manualBarcode.trim() || `INT-${Date.now().toString().slice(-6)}`;
+    if (item.productCategory) {
+      const exists = categories.some(
+        (c) => c.toLowerCase() === item.productCategory.toLowerCase(),
+      );
+      if (!exists) {
+        await onCreateCategory(item.productCategory);
+      }
+      setSelectedCategory(item.productCategory);
+    }
+    if (item.suggestedSalePrice && item.suggestedSalePrice > 0 && !manualSalePrice.trim()) {
+      setManualSalePrice(item.suggestedSalePrice.toFixed(2).replace(".", ","));
+    }
+
+    if (captureImmediately) {
+      setScanFlash(true);
+      window.setTimeout(() => setScanFlash(false), 350);
+      const extras = buildCurrentScanExtras();
+      await onCaptureScan({
+        productCode: codeToUse,
+        productName: item.productName,
+        productDescription: item.productDescription,
+        brand: item.brand,
+        productImageUrl: item.productImageUrl,
+        ...extras,
+        productCategory: item.productCategory || extras.productCategory,
+        detectedSalePrice:
+          extras.detectedSalePrice ||
+          (item.suggestedSalePrice
+            ? item.suggestedSalePrice.toFixed(2).replace(".", ",")
+            : undefined),
+      });
+      finalizeAfterScan();
+      setInternetResults([]);
+      setInternetSearchQuery("");
+      setInternetSearchDone(false);
+      return;
+    }
+
+    setManualBarcode(codeToUse);
+    setManualName(item.productName);
+    setManualDescription(item.productDescription);
+    setManualBrand(item.brand);
+    setManualImageUrl(item.productImageUrl);
+    setInternetResults([]);
+    setInternetSearchDone(false);
+  };
+
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const cleanCode = manualBarcode.trim();
@@ -597,10 +682,16 @@ export default function LiveCameraScanner({
       await onCaptureScan({
         productCode: cleanCode,
         productName: manualName.trim() || undefined,
+        productDescription: manualDescription.trim() || undefined,
+        brand: manualBrand.trim() || undefined,
+        productImageUrl: manualImageUrl.trim() || undefined,
         ...extras,
       });
       setManualBarcode("");
       setManualName("");
+      setManualDescription("");
+      setManualBrand("");
+      setManualImageUrl("");
       finalizeAfterScan();
     } finally {
       setIsSubmittingManual(false);
@@ -1323,6 +1414,86 @@ export default function LiveCameraScanner({
             </button>
           ))}
         </div>
+      </div>
+
+      {/* Pesquisa de Produto na Internet pelo Nome / Marca para já preencher */}
+      <div className="internet-search-box">
+        <div className="internet-search-header">
+          <Globe size={15} />
+          <span>Pesquisar Produto na Internet (por Nome ou Marca) para já preencher:</span>
+        </div>
+
+        <form onSubmit={handleInternetSearch} className="internet-search-form">
+          <input
+            id="input-internet-search"
+            type="text"
+            placeholder="Ex: Coca Cola, Detergente Ypê, Shampoo Dove, Arroz Camil..."
+            value={internetSearchQuery}
+            onChange={(e) => setInternetSearchQuery(e.target.value)}
+            className="scanner-input"
+          />
+          <button
+            type="submit"
+            id="btn-internet-search"
+            disabled={internetSearchQuery.trim().length < 2 || isSearchingInternet}
+            className="btn-internet-search"
+          >
+            <Search size={15} />
+            <span>{isSearchingInternet ? "Buscando..." : "Pesquisar"}</span>
+          </button>
+        </form>
+
+        {internetResults.length > 0 ? (
+          <div className="internet-results-list" role="region" aria-label="Resultados da Internet">
+            {internetResults.map((res, idx) => (
+              <div key={`${res.barcode}-${idx}`} className="internet-result-card">
+                {res.productImageUrl ? (
+                  <img
+                    src={res.productImageUrl}
+                    alt={res.productName}
+                    className="internet-result-thumb"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div className="internet-result-thumb placeholder">
+                    <Package size={18} />
+                  </div>
+                )}
+
+                <div className="internet-result-info">
+                  <strong>{res.productName}</strong>
+                  <div className="internet-result-meta">
+                    {res.barcode ? <span className="item-ean-badge">{res.barcode}</span> : null}
+                    <span className="item-category-badge">{res.productCategory}</span>
+                    <span className="internet-source-tag">{res.source}</span>
+                  </div>
+                </div>
+
+                <div className="internet-result-actions">
+                  <button
+                    type="button"
+                    onClick={() => applyInternetResult(res, false)}
+                    className="btn-fill-from-web"
+                  >
+                    Preencher
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => applyInternetResult(res, true)}
+                    className="btn-capture-from-web"
+                  >
+                    + Lançar
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : internetSearchDone && !isSearchingInternet ? (
+          <p className="internet-empty-msg">
+            Nenhum produto encontrado para &ldquo;{internetSearchQuery}&rdquo;. Tente outro nome ou
+            marca.
+          </p>
+        ) : null}
       </div>
 
       {/* Entrada Manual Rápida por Código de Barras */}

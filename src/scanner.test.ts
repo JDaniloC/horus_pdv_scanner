@@ -189,3 +189,14 @@ describe("Data de Vencimento (Nulo, +30 dias e Data Específica)", () => {
     expect(updatedNull?.item.expirationDate).toBeNull();
   });
 });
+
+import { searchProductsOnInternet } from "../server/barcodeCatalogLookup";
+
+describe("Pesquisa de Produto na Internet pelo Nome", () => {
+  it("encontra produtos pelo nome e retorna código de barras, categoria e descrição", async () => {
+    const results = await searchProductsOnInternet("Coca-Cola");
+    expect(results.length).toBeGreaterThan(0);
+    expect(results[0]?.productName.toLowerCase()).toContain("coca");
+    expect(results[0]?.barcode.length).toBeGreaterThanOrEqual(8);
+  });
+});

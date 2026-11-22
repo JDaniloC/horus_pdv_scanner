@@ -543,3 +543,143 @@ export function getBuiltinCatalogSamples(): Array<{ barcode: string } & Omit<Bar
     ...info,
   }));
 }
+
+interface SearchCacheEntry {
+  results: BarcodeCatalogInfo[];
+  expiresAt: number;
+}
+
+const searchCache = new Map<string, SearchCacheEntry>();
+const SEARCH_CACHE_TTL_MS = 15 * 60 * 1000;
+
+function mapOpenFactsSearchProduct(
+  product: Record<string, unknown>,
+  sourceName: string,
+): BarcodeCatalogInfo | null {
+  const code = normalizeBarcode(String(product.code ?? product._id ?? ""));
+  const rawName =
+    String(product.product_name_pt ?? "").trim() ||
+    String(product.product_name ?? "").trim() ||
+    String(product.generic_name_pt ?? "").trim() ||
+    String(product.generic_name ?? "").trim();
+  const rawBrands = String(product.brands ?? "").trim();
+  const brand = rawBrands.split(",")[0]?.trim() ?? "";
+  const quantity = String(product.quantity ?? "").trim();
+  const generic =
+    String(product.generic_name_pt ?? "").trim() || String(product.generic_name ?? "").trim();
+  const imageUrl =
+    String(product.image_front_small_url ?? "").trim() ||
+    String(product.image_front_url ?? "").trim() ||
+    String(product.image_url ?? "").trim();
+  const category = extractOpenFactsCategory(product);
+  const composedName = composeProductName(rawName, brand, quantity);
+
+  if (!composedName) return null;
+
+  return {
+    barcode: code,
+    found: true,
+    source: sourceName,
+    productName: composedName,
+    brand: brand.slice(0, 80),
+    productCategory: category || "Mercearia",
+    productDescription: buildDescription(brand, quantity, generic) || composedName,
+    productImageUrl: imageUrl.startsWith("http") ? imageUrl : "",
+    suggestedUnitType: "UN",
+    suggestedSalePrice: null,
+  };
+}
+
+async function trySearchOpenFactsByName(
+  baseUrl: string,
+  sourceName: string,
+  query: string,
+  pageSize = 6,
+): Promise<BarcodeCatalogInfo[]> {
+  const url = `${baseUrl}/cgi/search.pl?search_terms=${encodeURIComponent(
+    query,
+  )}&search_simple=1&action=process&json=1&page_size=${pageSize}&fields=code,_id,product_name,product_name_pt,generic_name,generic_name_pt,brands,quantity,categories,categories_hierarchy,image_front_small_url,image_front_url,image_url`;
+  const json = await fetchJsonWithTimeout(url);
+  if (!json || !Array.isArray(json.products)) return [];
+
+  const list: BarcodeCatalogInfo[] = [];
+  for (const item of json.products) {
+    if (typeof item !== "object" || !item) continue;
+    const mapped = mapOpenFactsSearchProduct(item as Record<string, unknown>, sourceName);
+    if (mapped) {
+      list.push(mapped);
+    }
+  }
+  return list;
+}
+
+/**
+ * Pesquisa produtos na internet pelo nome/marca (Open Food Facts BR, Open Products Facts,
+ * Open Beauty Facts e Open Food Facts Global) + catálogo brasileiro embarcado.
+ */
+export async function searchProductsOnInternet(rawQuery: string): Promise<BarcodeCatalogInfo[]> {
+  const query = rawQuery.trim();
+  if (query.length < 2) return [];
+
+  const cacheKey = query.toLowerCase();
+  const now = Date.now();
+  const cached = searchCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached.results;
+  }
+
+  const resultsByKey = new Map<string, BarcodeCatalogInfo>();
+
+  const pushUnique = (item: BarcodeCatalogInfo) => {
+    const key = item.barcode || item.productName.toLowerCase();
+    if (!key) return;
+    if (!resultsByKey.has(key)) {
+      resultsByKey.set(key, item);
+    }
+  };
+
+  // 1. Catálogo brasileiro local (match instantâneo)
+  const terms = cacheKey.split(/\s+/).filter(Boolean);
+  for (const [barcode, info] of Object.entries(BUILTIN_BRAZILIAN_MARKET_CATALOG)) {
+    const haystack = `${barcode} ${info.productName} ${info.brand} ${info.productCategory}`.toLowerCase();
+    if (terms.every((t) => haystack.includes(t))) {
+      pushUnique({
+        barcode,
+        found: true,
+        ...info,
+      });
+    }
+  }
+
+  // 2. Busca paralela na internet (Alimentos BR, Produtos Gerais/Limpeza, Higiene/Beleza)
+  const [foodBr, productsFacts, beautyFacts] = await Promise.all([
+    trySearchOpenFactsByName("https://br.openfoodfacts.org", "Open Food Facts BR", query, 8),
+    trySearchOpenFactsByName("https://world.openproductsfacts.org", "Open Products Facts", query, 5),
+    trySearchOpenFactsByName("https://world.openbeautyfacts.org", "Open Beauty Facts", query, 5),
+  ]);
+
+  for (const item of [...foodBr, ...productsFacts, ...beautyFacts]) {
+    pushUnique(item);
+  }
+
+  // 3. Fallback global caso poucos resultados tenham aparecido nas bases acima
+  if (resultsByKey.size < 4) {
+    const globalFood = await trySearchOpenFactsByName(
+      "https://world.openfoodfacts.org",
+      "Open Food Facts Global",
+      query,
+      6,
+    );
+    for (const item of globalFood) {
+      pushUnique(item);
+    }
+  }
+
+  const finalResults = Array.from(resultsByKey.values()).slice(0, 14);
+  searchCache.set(cacheKey, {
+    results: finalResults,
+    expiresAt: now + SEARCH_CACHE_TTL_MS,
+  });
+
+  return finalResults;
+}

@@ -256,6 +256,9 @@ export default function App() {
       expirationDate?: string | null;
       productName?: string;
       productCategory?: string;
+      productDescription?: string;
+      brand?: string;
+      productImageUrl?: string;
       quantityDelta?: number;
       priceSource?: "ocr" | "manual" | "catalog";
     }): Promise<LiveScanResponse | null> => {
@@ -271,6 +274,9 @@ export default function App() {
           expirationDate: input.expirationDate,
           productName: input.productName,
           productCategory: input.productCategory,
+          productDescription: input.productDescription,
+          brand: input.brand,
+          productImageUrl: input.productImageUrl,
           quantityDelta: input.quantityDelta,
           duplicateBehavior,
           priceSource: input.priceSource ?? "ocr",

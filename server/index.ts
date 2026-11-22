@@ -11,7 +11,11 @@ import express from "express";
 import cors from "cors";
 import { WebSocketServer, WebSocket } from "ws";
 import { sheetStore } from "./sheetStore.ts";
-import { getBuiltinCatalogSamples, lookupBarcodeCatalog } from "./barcodeCatalogLookup.ts";
+import {
+  getBuiltinCatalogSamples,
+  lookupBarcodeCatalog,
+  searchProductsOnInternet,
+} from "./barcodeCatalogLookup.ts";
 import type {
   LiveScanPayload,
   MergeSheetsRequest,
@@ -142,6 +146,23 @@ app.get("/api/catalog/samples", (_req, res) => {
   res.json({
     samples: getBuiltinCatalogSamples(),
   });
+});
+
+// Pesquisa produtos na internet pelo nome/marca para pré-preenchimento automático
+app.get("/api/catalog/search", async (req, res) => {
+  try {
+    const q = String(req.query.q ?? "").trim();
+    if (q.length < 2) {
+      res.json({ results: [] });
+      return;
+    }
+    const results = await searchProductsOnInternet(q);
+    res.json({ results });
+  } catch (error) {
+    res.status(500).json({
+      message: error instanceof Error ? error.message : "Erro ao pesquisar produtos na internet.",
+    });
+  }
 });
 
 // Consulta pública de código de barras (EAN/GTIN/UPC)
