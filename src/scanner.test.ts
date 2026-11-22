@@ -200,3 +200,15 @@ describe("Pesquisa de Produto na Internet pelo Nome", () => {
     expect(results[0]?.barcode.length).toBeGreaterThanOrEqual(8);
   });
 });
+
+import { isProductNameUnclear } from "../src/utils/productNameQuality";
+
+describe("Detecção de Nome Não Claro para Formulário Pré-Preenchido", () => {
+  it("identifica nomes genéricos, curtos ou com caracteres estranhos", () => {
+    expect(isProductNameUnclear("Produto EAN 7891234567890", "Cadastro Instantâneo")).toBe(true);
+    expect(isProductNameUnclear("Produto Pesável Balança #00123")).toBe(true);
+    expect(isProductNameUnclear("Hari fall^ rescue", "Open Products Facts")).toBe(true);
+    expect(isProductNameUnclear("AB")).toBe(true);
+    expect(isProductNameUnclear("Refrigerante Coca-Cola Original 350ml", "Open Food Facts BR")).toBe(false);
+  });
+});

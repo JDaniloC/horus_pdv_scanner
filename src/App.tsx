@@ -474,14 +474,9 @@ export default function App() {
         <div className="brand-row">
           <div className="brand-identity">
             <div className="brand-logo-badge">
-              <ScanBarcode size={20} />
+              <ScanBarcode size={16} />
             </div>
-            <div>
-              <h1 className="brand-title">Horus PDV · Coletor Ao Vivo</h1>
-              <p className="brand-subtitle">
-                Câmera Sempre Aberta · Código de Barras + OCR de Preço · Multi-Celulares
-              </p>
-            </div>
+            <h1 className="brand-title">Horus Scanner</h1>
           </div>
 
           <div className="header-right-pills">
@@ -489,11 +484,11 @@ export default function App() {
               className={`ws-status-pill ${wsConnected ? "is-online" : "is-offline"}`}
               title="Sincronização em tempo real entre celulares"
             >
-              {wsConnected ? <Wifi size={13} /> : <WifiOff size={13} />}
+              {wsConnected ? <Wifi size={12} /> : <WifiOff size={12} />}
               <span>
                 {wsConnected
-                  ? `${Math.max(1, connectedDevices.length)} celular(es) online`
-                  : "Reconectando..."}
+                  ? `${Math.max(1, connectedDevices.length)} online`
+                  : "Offline"}
               </span>
             </span>
 
@@ -510,7 +505,7 @@ export default function App() {
                 >
                   {sheets.map((s) => (
                     <option key={s.id} value={s.id}>
-                      {s.code} · {s.name} ({s.itemCount} itens)
+                      {s.code} · {s.name} ({s.itemCount})
                     </option>
                   ))}
                 </select>
@@ -527,8 +522,8 @@ export default function App() {
             onClick={() => setActiveTab("split_live")}
             className={`tab-btn ${activeTab === "split_live" ? "is-active" : ""}`}
           >
-            <Camera size={16} />
-            <span>Câmera + Planilha ao Vivo</span>
+            <Camera size={14} />
+            <span>Câmera</span>
           </button>
 
           <button
@@ -537,10 +532,8 @@ export default function App() {
             onClick={() => setActiveTab("sheet_only")}
             className={`tab-btn ${activeTab === "sheet_only" ? "is-active" : ""}`}
           >
-            <FileSpreadsheet size={16} />
-            <span>
-              Planilha ({activeSheet?.itemCount ?? 0})
-            </span>
+            <FileSpreadsheet size={14} />
+            <span>Planilha ({activeSheet?.itemCount ?? 0})</span>
           </button>
 
           <button
@@ -549,10 +542,8 @@ export default function App() {
             onClick={() => setActiveTab("merge_multi")}
             className={`tab-btn ${activeTab === "merge_multi" ? "is-active" : ""}`}
           >
-            <GitMerge size={16} />
-            <span>
-              Juntar Celulares ({sheets.length} planilhas · {totalGlobalItems} itens)
-            </span>
+            <GitMerge size={14} />
+            <span>Juntar ({sheets.length} · {totalGlobalItems})</span>
           </button>
         </nav>
       </header>

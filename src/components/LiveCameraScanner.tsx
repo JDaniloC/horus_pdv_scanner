@@ -7,6 +7,7 @@
  */
 
 import {
+  AlertTriangle,
   Calculator,
   Calendar,
   Camera,
@@ -19,6 +20,7 @@ import {
   Package,
   Plus,
   RefreshCw,
+  Save,
   ScanBarcode,
   Search,
   Sparkles,
@@ -51,6 +53,7 @@ import {
   formatExpirationPtBr,
   type ExpirationPresetMode,
 } from "@/utils/expirationDate";
+import { isProductNameUnclear } from "@/utils/productNameQuality";
 
 interface LiveCameraScannerProps {
   sheetName: string;
@@ -79,6 +82,7 @@ interface LiveCameraScannerProps {
   onApplyValuesToLastItem?: (
     itemId: string,
     updates: {
+      productName?: string;
       productQnt?: number;
       productSalePrice?: string;
       productUnitPrice?: string;
@@ -185,9 +189,64 @@ export default function LiveCameraScanner({
   const [isSearchingInternet, setIsSearchingInternet] = useState(false);
   const [internetSearchDone, setInternetSearchDone] = useState(false);
 
+  // Formulário pré-preenchido automático quando o nome do produto capturado não está claro
+  const reviewNameInputRef = useRef<HTMLInputElement | null>(null);
+  const lastAutoReviewedIdRef = useRef<string>("");
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewItemId, setReviewItemId] = useState<string | null>(null);
+  const [reviewBarcode, setReviewBarcode] = useState("");
+  const [reviewIsUnclearAlert, setReviewIsUnclearAlert] = useState(false);
+  const [reviewSaving, setReviewSaving] = useState(false);
+  const [reviewForm, setReviewForm] = useState<{
+    productName: string;
+    productQnt: string;
+    productSalePrice: string;
+    productUnitPrice: string;
+    productCategory: string;
+    expirationMode: ExpirationPresetMode;
+    customExpirationDate: string;
+  }>({
+    productName: "",
+    productQnt: "1",
+    productSalePrice: "",
+    productUnitPrice: "",
+    productCategory: "",
+    expirationMode: "none",
+    customExpirationDate: addDaysIsoDate(30),
+  });
+
   // Simulador de Gôndola ao Vivo
   const [autoSimulateShelf, setAutoSimulateShelf] = useState(false);
   const [simActiveProduct, setSimActiveProduct] = useState<CatalogSampleItem | null>(null);
+
+  // Abre o formulário pré-preenchido automaticamente se o produto capturado tiver nome estranho/genérico
+  useEffect(() => {
+    if (!lastCaptureResult) return;
+    const item = lastCaptureResult.item;
+    if (lastAutoReviewedIdRef.current === item.id) return;
+    lastAutoReviewedIdRef.current = item.id;
+
+    const unclear = isProductNameUnclear(item.productName, item.catalogSource);
+    if (unclear) {
+      const isGenericPlaceholder = /^produto\s+(ean|pes[aá]vel)/i.test(item.productName);
+      setReviewItemId(item.id);
+      setReviewBarcode(item.productCode);
+      setReviewIsUnclearAlert(true);
+      setReviewForm({
+        productName: isGenericPlaceholder ? "" : item.productName,
+        productQnt: String(item.productQnt || 1),
+        productSalePrice: item.productSalePrice === "0,00" ? "" : item.productSalePrice,
+        productUnitPrice: item.productUnitPrice === "0,00" ? "" : item.productUnitPrice,
+        productCategory: item.productCategory || "Mercearia",
+        expirationMode: item.expirationDate ? "custom" : "none",
+        customExpirationDate: item.expirationDate || addDaysIsoDate(30),
+      });
+      setReviewOpen(true);
+      window.setTimeout(() => {
+        reviewNameInputRef.current?.focus();
+      }, 60);
+    }
+  }, [lastCaptureResult]);
 
   const effectiveExpirationDate = useMemo<string | null>(() => {
     if (expirationMode === "none") return null;
@@ -745,6 +804,61 @@ export default function LiveCameraScanner({
     }
   };
 
+  const openReviewForLastItem = () => {
+    if (!lastCaptureResult) return;
+    const item = lastCaptureResult.item;
+    const isGenericPlaceholder = /^produto\s+(ean|pes[aá]vel)/i.test(item.productName);
+    setReviewItemId(item.id);
+    setReviewBarcode(item.productCode);
+    setReviewIsUnclearAlert(isProductNameUnclear(item.productName, item.catalogSource));
+    setReviewForm({
+      productName: isGenericPlaceholder ? "" : item.productName,
+      productQnt: String(item.productQnt || 1),
+      productSalePrice: item.productSalePrice === "0,00" ? "" : item.productSalePrice,
+      productUnitPrice: item.productUnitPrice === "0,00" ? "" : item.productUnitPrice,
+      productCategory: item.productCategory || "Mercearia",
+      expirationMode: item.expirationDate ? "custom" : "none",
+      customExpirationDate: item.expirationDate || addDaysIsoDate(30),
+    });
+    setReviewOpen(true);
+    window.setTimeout(() => {
+      reviewNameInputRef.current?.focus();
+    }, 50);
+  };
+
+  const handleSaveReviewForm = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!reviewItemId || !onApplyValuesToLastItem) return;
+    setReviewSaving(true);
+    try {
+      const qnt = Number.parseFloat(reviewForm.productQnt.replace(",", "."));
+      const finalExp =
+        reviewForm.expirationMode === "none"
+          ? null
+          : reviewForm.expirationMode === "30_days"
+            ? addDaysIsoDate(30)
+            : reviewForm.customExpirationDate.trim() || null;
+
+      await onApplyValuesToLastItem(reviewItemId, {
+        ...(reviewForm.productName.trim()
+          ? { productName: reviewForm.productName.trim() }
+          : {}),
+        productQnt: Number.isFinite(qnt) && qnt > 0 ? qnt : 1,
+        ...(reviewForm.productSalePrice.trim()
+          ? { productSalePrice: reviewForm.productSalePrice.trim() }
+          : {}),
+        ...(reviewForm.productUnitPrice.trim()
+          ? { productUnitPrice: reviewForm.productUnitPrice.trim() }
+          : {}),
+        productCategory: reviewForm.productCategory || "Mercearia",
+        expirationDate: finalExp,
+      });
+      setReviewOpen(false);
+    } finally {
+      setReviewSaving(false);
+    }
+  };
+
   return (
     <section className="scanner-card" aria-label="Câmera e Coletor ao Vivo">
       {/* Barra superior do coletor */}
@@ -903,6 +1017,196 @@ export default function LiveCameraScanner({
           </div>
         ) : null}
       </div>
+
+      {/* FORMULÁRIO PRÉ-PREENCHIDO AUTOMÁTICO (aparece logo abaixo da câmera quando o nome não está claro) */}
+      {reviewOpen && reviewItemId ? (
+        <form
+          onSubmit={handleSaveReviewForm}
+          className={`review-unclear-card ${reviewIsUnclearAlert ? "is-unclear" : ""}`}
+          aria-label="Completar Cadastro do Produto"
+        >
+          <div className="review-card-header">
+            <div className="review-card-title">
+              <AlertTriangle size={16} />
+              <span>
+                {reviewIsUnclearAlert
+                  ? "Nome não identificado claramente — complete os dados abaixo:"
+                  : "Editar Cadastro Rápido:"}
+              </span>
+            </div>
+            <span className="capture-barcode-mono">{reviewBarcode}</span>
+          </div>
+
+          <div className="review-name-row">
+            <input
+              ref={reviewNameInputRef}
+              id="input-review-product-name"
+              type="text"
+              placeholder="Digite o nome real (ex: Refrigerante Coca-Cola 2L)..."
+              value={reviewForm.productName}
+              onChange={(e) =>
+                setReviewForm((f) => ({ ...f, productName: e.target.value }))
+              }
+              className="scanner-input"
+            />
+            <button
+              type="button"
+              id="btn-review-search-internet"
+              disabled={reviewForm.productName.trim().length < 2 || isSearchingInternet}
+              onClick={() => {
+                setInternetSearchQuery(reviewForm.productName.trim());
+                scannerApi
+                  .searchCatalogByName(reviewForm.productName.trim())
+                  .then(({ results }) => {
+                    if (results[0]) {
+                      setReviewForm((f) => ({
+                        ...f,
+                        productName: results[0].productName,
+                        productCategory: results[0].productCategory || f.productCategory,
+                      }));
+                    } else {
+                      setInternetResults([]);
+                      setInternetSearchDone(true);
+                    }
+                  })
+                  .catch(() => {});
+              }}
+              className="btn-review-web-lookup"
+              title="Preencher nome e categoria buscando na internet"
+            >
+              <Globe size={14} />
+              <span>Buscar</span>
+            </button>
+          </div>
+
+          <div className="review-fields-grid">
+            <div className="input-group">
+              <label htmlFor="input-review-qty">Quantidade</label>
+              <input
+                id="input-review-qty"
+                type="text"
+                inputMode="decimal"
+                value={reviewForm.productQnt}
+                onChange={(e) =>
+                  setReviewForm((f) => ({ ...f, productQnt: e.target.value }))
+                }
+                className="scanner-input font-mono"
+              />
+            </div>
+
+            <div className="input-group">
+              <label htmlFor="input-review-cost">Custo Unit. (R$)</label>
+              <input
+                id="input-review-cost"
+                type="text"
+                inputMode="decimal"
+                placeholder="Ex: 5,20"
+                value={reviewForm.productUnitPrice}
+                onChange={(e) =>
+                  setReviewForm((f) => ({ ...f, productUnitPrice: e.target.value }))
+                }
+                className="scanner-input font-mono"
+              />
+            </div>
+
+            <div className="input-group">
+              <label htmlFor="input-review-sale">Preço Venda (R$)</label>
+              <input
+                id="input-review-sale"
+                type="text"
+                inputMode="decimal"
+                placeholder="Ex: 7,90"
+                value={reviewForm.productSalePrice}
+                onChange={(e) =>
+                  setReviewForm((f) => ({ ...f, productSalePrice: e.target.value }))
+                }
+                className="scanner-input font-mono"
+              />
+            </div>
+
+            <div className="input-group">
+              <label htmlFor="select-review-category">Categoria</label>
+              <select
+                id="select-review-category"
+                value={reviewForm.productCategory}
+                onChange={(e) =>
+                  setReviewForm((f) => ({ ...f, productCategory: e.target.value }))
+                }
+                className="scanner-select"
+              >
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          <div className="review-expiration-row">
+            <span className="expiration-label">
+              <Calendar size={13} />
+              <span>Vencimento:</span>
+            </span>
+            <button
+              type="button"
+              onClick={() =>
+                setReviewForm((f) => ({ ...f, expirationMode: "none" }))
+              }
+              className={`exp-mode-btn ${reviewForm.expirationMode === "none" ? "is-selected" : ""}`}
+            >
+              Nulo
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setReviewForm((f) => ({ ...f, expirationMode: "30_days" }))
+              }
+              className={`exp-mode-btn ${reviewForm.expirationMode === "30_days" ? "is-selected" : ""}`}
+            >
+              +30 dias
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                setReviewForm((f) => ({ ...f, expirationMode: "custom" }))
+              }
+              className={`exp-mode-btn ${reviewForm.expirationMode === "custom" ? "is-selected" : ""}`}
+            >
+              Data
+            </button>
+            {reviewForm.expirationMode === "custom" ? (
+              <input
+                type="date"
+                value={reviewForm.customExpirationDate}
+                onChange={(e) =>
+                  setReviewForm((f) => ({ ...f, customExpirationDate: e.target.value }))
+                }
+                className="scanner-input exp-date-inline font-mono"
+              />
+            ) : null}
+          </div>
+
+          <div className="review-actions-row">
+            <button
+              type="button"
+              onClick={() => setReviewOpen(false)}
+              className="btn-review-dismiss"
+            >
+              Fechar
+            </button>
+            <button
+              type="submit"
+              id="btn-save-review-form"
+              disabled={reviewSaving}
+              className="btn-review-save"
+            >
+              <Save size={15} />
+              <span>{reviewSaving ? "Salvando..." : "Salvar Cadastro"}</span>
+            </button>
+          </div>
+        </form>
+      ) : null}
 
       {/* PAINEL RÁPIDO LOGO ABAIXO DO LEITOR: Quantidade, Preço Unitário, Fardo e Categoria na Hora */}
       <div className="quick-entry-dock" aria-label="Preenchimento Rápido de Quantidade, Preço, Fardo e Categoria">
@@ -1284,14 +1588,22 @@ export default function LiveCameraScanner({
               <div className="last-capture-actions">
                 <button
                   type="button"
+                  id="btn-open-review-last"
+                  onClick={openReviewForLastItem}
+                  className="btn-apply-last"
+                >
+                  Editar Nome / Preço / Vencimento
+                </button>
+                <button
+                  type="button"
                   id="btn-apply-to-last-item"
                   disabled={applyingToLast}
                   onClick={handleApplyToLastCaptured}
-                  className="btn-apply-last"
+                  className="btn-apply-last secondary"
                 >
                   {applyingToLast
                     ? "Atualizando..."
-                    : "Aplicar Qtd / Custo / Venda / Categoria / Validade acima neste item"}
+                    : "Aplicar campos acima"}
                 </button>
               </div>
             ) : null}
