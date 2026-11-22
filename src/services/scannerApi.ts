@@ -112,4 +112,15 @@ export const scannerApi = {
   getCatalogSamples(): Promise<{ samples: CatalogSampleItem[] }> {
     return requestJson("/api/catalog/samples");
   },
+
+  listCategories(): Promise<{ categories: string[] }> {
+    return requestJson("/api/categories");
+  },
+
+  createCategory(name: string): Promise<{ category: string; categories: string[] }> {
+    return requestJson("/api/categories", {
+      method: "POST",
+      body: JSON.stringify({ name }),
+    });
+  },
 };

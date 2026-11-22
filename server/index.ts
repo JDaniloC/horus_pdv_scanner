@@ -50,6 +50,7 @@ wss.on("connection", (ws) => {
     payload: {
       sheets: sheetStore.listSheets(),
       devices: sheetStore.listDevices(),
+      categories: sheetStore.listCategories(),
     },
     timestamp: new Date().toISOString(),
   };
@@ -106,9 +107,34 @@ app.get("/api/health", (_req, res) => {
     status: "ok",
     service: "horus-pdv-scanner-server",
     sheetsCount: sheetStore.listSheets().length,
+    categoriesCount: sheetStore.listCategories().length,
     connectedDevices: sheetStore.listDevices().length,
     timestamp: new Date().toISOString(),
   });
+});
+
+// Lista categorias disponíveis (padrão + criadas pelos celulares)
+app.get("/api/categories", (_req, res) => {
+  res.json({
+    categories: sheetStore.listCategories(),
+  });
+});
+
+// Cria uma nova categoria instantaneamente e sincroniza com todos os celulares
+app.post("/api/categories", (req, res) => {
+  try {
+    const { name } = req.body as { name?: string };
+    const result = sheetStore.createCategory(name ?? "");
+    broadcastEvent("CATEGORIES_UPDATED", {
+      categories: result.categories,
+      createdCategory: result.category,
+    });
+    res.status(201).json(result);
+  } catch (error) {
+    res.status(400).json({
+      message: error instanceof Error ? error.message : "Erro ao criar categoria.",
+    });
+  }
 });
 
 // Amostras do catálogo brasileiro embarcado para testes rápidos e demonstração
@@ -212,6 +238,7 @@ app.post("/api/scans", async (req, res) => {
       deviceName: payload.deviceName,
       sheets: sheetStore.listSheets(),
       devices: sheetStore.listDevices(),
+      categories: sheetStore.listCategories(),
     });
 
     res.status(result.action === "created" ? 201 : 200).json(result);
@@ -234,6 +261,7 @@ app.patch("/api/sheets/:sheetId/items/:itemId", (req, res) => {
     item: updated.item,
     sheet: updated.sheet,
     sheets: sheetStore.listSheets(),
+    categories: sheetStore.listCategories(),
   });
   res.json(updated);
 });

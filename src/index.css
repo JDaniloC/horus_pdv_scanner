@@ -1600,3 +1600,364 @@ button {
   align-items: center;
   gap: 0.4rem;
 }
+
+/* Painel Rápido Logo Abaixo do Leitor (Quantidade, Preço Unitário, Fardo e Categoria na Hora) */
+.quick-entry-dock {
+  padding: 0.85rem 0.95rem;
+  border-bottom: 1px solid var(--border-subtle);
+  background: rgba(14, 22, 39, 0.78);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.quick-dock-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.quick-dock-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.82rem;
+  font-weight: 800;
+  color: #34d399;
+}
+
+.quick-qty-price-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.65rem;
+  align-items: start;
+}
+
+.qty-input-stepper {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.qty-step-btn {
+  width: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+  transition: background 0.14s ease;
+}
+
+.qty-step-btn:hover {
+  background: #243356;
+}
+
+.qty-numeric-input {
+  width: 100%;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  text-align: center;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #34d399;
+  padding: 0.44rem 0.25rem;
+}
+
+.qty-numeric-input:focus {
+  outline: none;
+}
+
+.mini-presets-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-top: 0.3rem;
+}
+
+.presets-label {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-right: 0.15rem;
+}
+
+.mini-chip-btn {
+  padding: 0.18rem 0.5rem;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.mini-chip-btn.is-selected {
+  background: var(--emerald-soft);
+  border-color: var(--emerald-500);
+  color: #34d399;
+}
+
+.mini-chip-btn.amber.is-selected {
+  background: var(--amber-soft);
+  border-color: var(--amber-500);
+  color: var(--amber-400);
+}
+
+.field-helper-text {
+  font-size: 0.69rem;
+  color: var(--text-muted);
+  margin-top: 0.2rem;
+}
+
+.margin-badge-inline {
+  color: #34d399;
+}
+
+/* Calculadora de Fardo */
+.pack-calc-box {
+  border-radius: var(--radius-md);
+  background: rgba(25, 36, 61, 0.72);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+  padding: 0.65rem 0.8rem;
+}
+
+.pack-calc-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.pack-calc-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--amber-400);
+}
+
+.pack-chevron {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  text-decoration: underline;
+}
+
+.pack-result-pill {
+  background: var(--emerald-soft);
+  color: #6ee7b7;
+  padding: 0.18rem 0.55rem;
+  border-radius: 999px;
+  font-size: 0.73rem;
+}
+
+.pack-calc-body {
+  margin-top: 0.65rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.pack-inputs-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.pack-actions-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.btn-use-pack-qty {
+  padding: 0.28rem 0.65rem;
+  border-radius: 6px;
+  background: var(--sky-soft);
+  border: 1px solid rgba(14, 165, 233, 0.4);
+  color: #38bdf8;
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.pack-summary-line {
+  padding: 0.42rem 0.65rem;
+  border-radius: var(--radius-sm);
+  background: rgba(11, 17, 30, 0.6);
+  font-size: 0.74rem;
+  color: var(--text-secondary);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+/* Categoria na Hora (Selecionar & Criar) */
+.category-instant-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.category-select-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.55rem;
+}
+
+.category-select-wrap {
+  flex: 1;
+  min-width: 190px;
+}
+
+.btn-new-category {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.5rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-strong);
+  font-size: 0.79rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  height: 37px;
+}
+
+.btn-new-category.is-active {
+  background: var(--emerald-soft);
+  border-color: var(--emerald-500);
+  color: #34d399;
+}
+
+.new-category-inline-form,
+.inline-cat-row {
+  display: flex;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.btn-create-category-confirm {
+  padding: 0.48rem 0.85rem;
+  border-radius: var(--radius-sm);
+  background: var(--emerald-500);
+  color: #03150e;
+  font-size: 0.78rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.btn-create-category-confirm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.last-capture-actions {
+  margin-top: 0.45rem;
+}
+
+.btn-apply-last {
+  padding: 0.34rem 0.7rem;
+  border-radius: 6px;
+  background: rgba(14, 165, 233, 0.16);
+  border: 1px solid rgba(14, 165, 233, 0.45);
+  color: #7dd3fc;
+  font-size: 0.73rem;
+  font-weight: 700;
+}
+
+.btn-apply-last:hover {
+  background: rgba(14, 165, 233, 0.25);
+}
+
+/* Melhorias na Tabela da Planilha */
+.sheet-filter-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.sheet-filter-row .sheet-search-bar {
+  flex: 1;
+  min-width: 210px;
+  padding: 0;
+  border-bottom: none;
+}
+
+.sheet-filter-row .search-icon {
+  left: 0.7rem;
+}
+
+.sheet-category-filter {
+  background: var(--bg-input);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  padding: 0.48rem 0.65rem;
+  font-size: 0.78rem;
+  min-width: 150px;
+}
+
+.edit-supplier-cat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.4rem;
+}
+
+.edit-category-picker {
+  display: flex;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.edit-full-pricing-block {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.item-pack-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.45rem;
+  padding: 0.45rem;
+  border-radius: var(--radius-sm);
+  background: rgba(11, 17, 30, 0.48);
+  border: 1px dashed rgba(245, 158, 11, 0.35);
+}
+
+.item-pack-edit-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  font-size: 0.67rem;
+  color: var(--amber-400);
+}
+
+.pack-info-pill {
+  background: var(--sky-soft);
+  color: #7dd3fc;
+  font-size: 0.71rem;
+  font-weight: 600;
+}
+
+.margin-info-pill {
+  background: var(--emerald-soft);
+  color: #6ee7b7;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.71rem;
+  font-weight: 700;
+}

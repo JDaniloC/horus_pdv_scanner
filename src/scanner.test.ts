@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import { extractPricesFromOcrText } from "../src/utils/priceExtractor";
+import {
+  calculateMarginPercent,
+  calculateSalePriceFromMargin,
+  calculateUnitCostFromPack,
+} from "../src/utils/packPricing";
 import { SheetStore, parseMoneyPtBr, formatMoneyPtBr } from "../server/sheetStore";
 
 describe("Extrator OCR de Preços de Gôndola (pt-BR)", () => {
@@ -21,6 +26,20 @@ describe("Extrator OCR de Preços de Gôndola (pt-BR)", () => {
     const rawOcr = "REFRIGERANTE 2,00L POR 11,49";
     const candidates = extractPricesFromOcrText(rawOcr);
     expect(candidates[0]?.formatted).toBe("11,49");
+  });
+});
+
+describe("Cálculo de Fardo (Custo Unitário e Margem de Venda)", () => {
+  it("deduz o preço de custo unitário a partir do preço do fardo e quantidade no fardo", () => {
+    const unitCost = calculateUnitCostFromPack("42,00", "12");
+    expect(unitCost.numeric).toBe(3.5);
+    expect(unitCost.formatted).toBe("3,50");
+
+    const suggestedSale = calculateSalePriceFromMargin(unitCost.formatted, "40");
+    expect(suggestedSale.numeric).toBe(4.9);
+    expect(suggestedSale.formatted).toBe("4,90");
+
+    expect(calculateMarginPercent("3,50", "4,90")).toBe(40);
   });
 });
 
@@ -63,6 +82,33 @@ describe("Contabilização ao Vivo e Unificação Multi-Celulares (SheetStore)",
     expect(scan2.item.productQnt).toBe(2);
     expect(scan2.item.productSalePrice).toBe("5,29");
     expect(scan2.priceChanged).toBe(true);
+  });
+
+  it("cria categorias na hora e deduz custo unitário pelo fardo diretamente na captura", async () => {
+    const store = new SheetStore({ persistToDisk: false });
+    const createdCat = store.createCategory("Bomboniere");
+    expect(createdCat.category).toBe("Bomboniere");
+    expect(store.listCategories()).toContain("Bomboniere");
+
+    const sheet = store.createSheet({ name: "Teste Fardo & Categoria" });
+    const scan = await store.recordLiveScan({
+      sheetId: sheet.id,
+      productCode: "7891962051345",
+      packPrice: "48,00",
+      packQuantity: 16,
+      detectedSalePrice: "4,50",
+      quantityDelta: 16,
+      productCategory: "Bomboniere",
+      deviceId: "cel-1",
+      deviceName: "Celular Caixa",
+    });
+
+    expect(scan.item.productUnitPrice).toBe("3,00");
+    expect(scan.item.productSalePrice).toBe("4,50");
+    expect(scan.item.productQnt).toBe(16);
+    expect(scan.item.productCategory).toBe("Bomboniere");
+    expect(scan.item.packPrice).toBe("48,00");
+    expect(scan.item.packQuantity).toBe(16);
   });
 
   it("junta planilhas diferentes de múltiplos celulares somando quantidades do mesmo código de barras", async () => {

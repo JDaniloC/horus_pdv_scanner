@@ -16,6 +16,7 @@ export interface ImportedSpreadsheetRow {
   productQnt: number;
   productUnitPrice: string;
   productSalePrice: string;
+  productCategory?: string;
 }
 
 const HEADER_ALIASES: Record<string, keyof ImportedSpreadsheetRow> = {
@@ -48,6 +49,8 @@ const HEADER_ALIASES: Record<string, keyof ImportedSpreadsheetRow> = {
   precodevenda: "productSalePrice",
   preco: "productSalePrice",
   productsaleprice: "productSalePrice",
+  categoria: "productCategory",
+  productcategory: "productCategory",
 };
 
 function normalizeHeader(value: unknown): string {
@@ -72,7 +75,7 @@ function sanitizeFileSlug(rawName: string): string {
 }
 
 /**
- * Gera e faz download do arquivo Excel (.xlsx) no exato layout do modelo oficial do Horus PDV.
+ * Gera e faz download do arquivo Excel (.xlsx) no exato layout do modelo oficial do Horus PDV (+ Categoria).
  */
 export async function exportToHorusPdvXlsx(
   items: ScannedProductItem[],
@@ -87,6 +90,7 @@ export async function exportToHorusPdvXlsx(
       { value: "Quantidade", fontWeight: "bold" },
       { value: "PrecoCusto", fontWeight: "bold" },
       { value: "PrecoVenda", fontWeight: "bold" },
+      { value: "Categoria", fontWeight: "bold" },
     ],
     ...items.map((item) => [
       { type: String, value: String(item.productCode || "") },
@@ -108,6 +112,7 @@ export async function exportToHorusPdvXlsx(
             ? item.productSalePrice
             : "1,00",
       },
+      { type: String, value: String(item.productCategory || "Mercearia") },
     ]),
   ];
 
@@ -130,6 +135,7 @@ export function exportToHorusPdvCsv(
     "Quantidade",
     "PrecoCusto",
     "PrecoVenda",
+    "Categoria",
   ];
 
   const escapeCsvCell = (val: string | number): string => {
@@ -150,6 +156,7 @@ export function exportToHorusPdvCsv(
       escapeCsvCell(
         item.productSalePrice && item.productSalePrice !== "0,00" ? item.productSalePrice : "1,00",
       ),
+      escapeCsvCell(item.productCategory || "Mercearia"),
     ].join(";"),
   );
 
@@ -216,6 +223,7 @@ export async function parseExternalSpreadsheetFile(
     "productQnt",
     "productUnitPrice",
     "productSalePrice",
+    "productCategory",
   ];
   const usePositional = columnMap.size < 2;
 
@@ -249,6 +257,7 @@ export async function parseExternalSpreadsheetFile(
       productQnt: Number.isFinite(qntNum) && qntNum > 0 ? qntNum : 1,
       productUnitPrice: getCell("productUnitPrice") || "0,00",
       productSalePrice: getCell("productSalePrice") || "0,00",
+      productCategory: getCell("productCategory") || undefined,
     });
   }
 

@@ -44,6 +44,8 @@ export interface ScannedProductItem {
   productImageUrl: string;
   unitType: "UN" | "KG";
   catalogSource: string;
+  packPrice?: string;
+  packQuantity?: number;
   lastCapturedByDeviceId: string;
   lastCapturedByDeviceName: string;
   captureCount: number;
@@ -90,6 +92,8 @@ export interface LiveScanPayload {
   productCode: string;
   detectedSalePrice?: string;
   detectedUnitPrice?: string;
+  packPrice?: string;
+  packQuantity?: number;
   productName?: string;
   productSupplier?: string;
   productDescription?: string;
@@ -146,7 +150,8 @@ export interface WsEventMessage {
     | "SHEET_UPDATED"
     | "SHEET_DELETED"
     | "SHEETS_MERGED"
-    | "DEVICES_UPDATED";
+    | "DEVICES_UPDATED"
+    | "CATEGORIES_UPDATED";
   payload: unknown;
   timestamp: string;
 }

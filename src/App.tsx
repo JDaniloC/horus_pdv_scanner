@@ -59,6 +59,7 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<MobileTab>("split_live");
   const [sheets, setSheets] = useState<SheetSummary[]>([]);
   const [activeSheet, setActiveSheet] = useState<SheetDetail | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
   const [connectedDevices, setConnectedDevices] = useState<ConnectedDevice[]>([]);
   const [catalogSamples, setCatalogSamples] = useState<CatalogSampleItem[]>([]);
   const [duplicateBehavior, setDuplicateBehavior] =
@@ -104,13 +105,16 @@ export default function App() {
   useEffect(() => {
     async function bootstrap() {
       try {
-        const [{ sheets: initialSheets, devices }, { samples }] = await Promise.all([
-          scannerApi.listSheets(),
-          scannerApi.getCatalogSamples(),
-        ]);
+        const [{ sheets: initialSheets, devices }, { samples }, { categories: initialCategories }] =
+          await Promise.all([
+            scannerApi.listSheets(),
+            scannerApi.getCatalogSamples(),
+            scannerApi.listCategories(),
+          ]);
         setSheets(initialSheets);
         setConnectedDevices(devices);
         setCatalogSamples(samples);
+        setCategories(initialCategories);
 
         const params = new URLSearchParams(window.location.search);
         const querySheetCode = params.get("sheet");
@@ -164,6 +168,9 @@ export default function App() {
           }
           if (Array.isArray(payload.devices)) {
             setConnectedDevices(payload.devices as ConnectedDevice[]);
+          }
+          if (Array.isArray(payload.categories)) {
+            setCategories(payload.categories as string[]);
           }
 
           if (
@@ -222,11 +229,33 @@ export default function App() {
     }
   }, [deviceId, deviceName, activeSheet, isCameraActive]);
 
+  const handleCreateCategory = useCallback(
+    async (name: string): Promise<string | null> => {
+      try {
+        const res = await scannerApi.createCategory(name);
+        setCategories(res.categories);
+        showNotice(`Categoria "${res.category}" criada e selecionada!`);
+        return res.category;
+      } catch (err) {
+        showNotice(
+          err instanceof Error ? err.message : "Erro ao criar categoria.",
+        );
+        return null;
+      }
+    },
+    [showNotice],
+  );
+
   const handleCaptureScan = useCallback(
     async (input: {
       productCode: string;
       detectedSalePrice?: string;
+      detectedUnitPrice?: string;
+      packPrice?: string;
+      packQuantity?: number;
       productName?: string;
+      productCategory?: string;
+      quantityDelta?: number;
       priceSource?: "ocr" | "manual" | "catalog";
     }): Promise<LiveScanResponse | null> => {
       if (!activeSheet) return null;
@@ -235,7 +264,12 @@ export default function App() {
           sheetId: activeSheet.id,
           productCode: input.productCode,
           detectedSalePrice: input.detectedSalePrice,
+          detectedUnitPrice: input.detectedUnitPrice,
+          packPrice: input.packPrice,
+          packQuantity: input.packQuantity,
           productName: input.productName,
+          productCategory: input.productCategory,
+          quantityDelta: input.quantityDelta,
           duplicateBehavior,
           priceSource: input.priceSource ?? "ocr",
           deviceId,
@@ -254,7 +288,6 @@ export default function App() {
           }
         }
 
-        // Atualiza a planilha ativa imediatamente
         const refreshed = await scannerApi.getSheet(activeSheet.id);
         setActiveSheet(refreshed.sheet);
 
@@ -273,12 +306,21 @@ export default function App() {
   const handleUpdateItem = useCallback(
     async (itemId: string, updates: Partial<ScannedProductItem>) => {
       if (!activeSheet) return;
-      await scannerApi.updateItem(activeSheet.id, itemId, {
+      const updated = await scannerApi.updateItem(activeSheet.id, itemId, {
         ...updates,
         deviceName,
       });
       const refreshed = await scannerApi.getSheet(activeSheet.id);
       setActiveSheet(refreshed.sheet);
+      setLastCaptureResult((prev) =>
+        prev && prev.item.id === itemId
+          ? {
+              ...prev,
+              item: updated.item,
+              sheet: updated.sheet,
+            }
+          : prev,
+      );
       showNotice("Item atualizado na planilha.");
     },
     [activeSheet, deviceName, showNotice],
@@ -518,11 +560,14 @@ export default function App() {
             <LiveCameraScanner
               sheetName={activeSheet.name}
               sheetCode={activeSheet.code}
+              categories={categories}
+              onCreateCategory={handleCreateCategory}
               duplicateBehavior={duplicateBehavior}
               onDuplicateBehaviorChange={setDuplicateBehavior}
               soundEnabled={soundEnabled}
               onToggleSound={() => setSoundEnabled((s) => !s)}
               onCaptureScan={handleCaptureScan}
+              onApplyValuesToLastItem={handleUpdateItem}
               onCameraActiveChange={setIsCameraActive}
               catalogSamples={catalogSamples}
               lastCaptureResult={lastCaptureResult}
@@ -530,6 +575,8 @@ export default function App() {
 
             <LiveSpreadsheetTable
               sheet={activeSheet}
+              categories={categories}
+              onCreateCategory={handleCreateCategory}
               onUpdateItem={handleUpdateItem}
               onDeleteItem={handleDeleteItem}
             />
@@ -538,6 +585,8 @@ export default function App() {
           <div className="single-column-layout">
             <LiveSpreadsheetTable
               sheet={activeSheet}
+              categories={categories}
+              onCreateCategory={handleCreateCategory}
               onUpdateItem={handleUpdateItem}
               onDeleteItem={handleDeleteItem}
             />

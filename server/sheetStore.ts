@@ -23,7 +23,25 @@ import { lookupBarcodeCatalog, normalizeBarcode } from "./barcodeCatalogLookup.t
 
 interface PersistedDatabase {
   sheets: SheetDetail[];
+  categories?: string[];
 }
+
+const DEFAULT_CATEGORIES = [
+  "Bebidas",
+  "Mercearia",
+  "Padaria",
+  "Hortifruti",
+  "Laticínios",
+  "Doces e Biscoitos",
+  "Salgadinhos e Snacks",
+  "Limpeza",
+  "Higiene Pessoal",
+  "Carnes e Frios",
+  "Óleos e Azeites",
+  "Cafés e Chás",
+  "Pet Shop",
+  "Outros",
+];
 
 const DATA_DIR = path.resolve(process.cwd(), "data");
 const DB_FILE = path.join(DATA_DIR, "scanner_db.json");
@@ -80,6 +98,7 @@ function generateJoinCode(name: string): string {
 export class SheetStore {
   private sheets: Map<string, SheetDetail> = new Map();
   private devices: Map<string, ConnectedDevice> = new Map();
+  private categories: Set<string> = new Set(DEFAULT_CATEGORIES);
   private persistToDisk: boolean;
 
   constructor(options?: { persistToDisk?: boolean }) {
@@ -100,9 +119,21 @@ export class SheetStore {
       if (!fs.existsSync(DB_FILE)) return;
       const raw = fs.readFileSync(DB_FILE, "utf-8");
       const parsed = JSON.parse(raw) as PersistedDatabase;
+      if (Array.isArray(parsed?.categories)) {
+        for (const cat of parsed.categories) {
+          if (typeof cat === "string" && cat.trim()) {
+            this.categories.add(cat.trim());
+          }
+        }
+      }
       if (Array.isArray(parsed?.sheets)) {
         for (const sheet of parsed.sheets) {
           this.sheets.set(sheet.id, sheet);
+          for (const item of sheet.items ?? []) {
+            if (item.productCategory?.trim()) {
+              this.categories.add(item.productCategory.trim());
+            }
+          }
         }
       }
     } catch (err) {
@@ -118,11 +149,41 @@ export class SheetStore {
       }
       const data: PersistedDatabase = {
         sheets: Array.from(this.sheets.values()),
+        categories: Array.from(this.categories),
       };
       fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2), "utf-8");
     } catch (err) {
       console.error("Erro ao persistir banco local:", err);
     }
+  }
+
+  public listCategories(): string[] {
+    const merged = new Set<string>(this.categories);
+    for (const sheet of this.sheets.values()) {
+      for (const item of sheet.items) {
+        if (item.productCategory?.trim()) {
+          merged.add(item.productCategory.trim());
+        }
+      }
+    }
+    return Array.from(merged).sort((a, b) => a.localeCompare(b, "pt-BR"));
+  }
+
+  public createCategory(rawName: string): { category: string; categories: string[] } {
+    const trimmed = rawName.trim().slice(0, 100);
+    if (!trimmed) {
+      throw new Error("Informe o nome da categoria.");
+    }
+    const existing = Array.from(this.categories).find(
+      (c) => c.toLowerCase() === trimmed.toLowerCase(),
+    );
+    const finalName = existing ?? trimmed;
+    this.categories.add(finalName);
+    this.saveToDisk();
+    return {
+      category: finalName,
+      categories: this.listCategories(),
+    };
   }
 
   private seedDefaultSheets(): void {
@@ -427,6 +488,29 @@ export class SheetStore {
         : 0);
     const formattedIncomingPrice = incomingPriceNum > 0 ? formatMoneyPtBr(incomingPriceNum) : "";
 
+    // Deduz preço de custo unitário se vier explicitamente ou via cálculo do fardo (packPrice / packQuantity)
+    const explicitUnitCostNum = parseMoneyPtBr(payload.detectedUnitPrice);
+    const packPriceNum = parseMoneyPtBr(payload.packPrice);
+    const packQtyNum =
+      typeof payload.packQuantity === "number" && payload.packQuantity > 0
+        ? payload.packQuantity
+        : 0;
+    const deducedFromPackCost =
+      packPriceNum > 0 && packQtyNum > 0
+        ? Math.round((packPriceNum / packQtyNum) * 100) / 100
+        : 0;
+    const explicitOrPackUnitCost =
+      explicitUnitCostNum > 0
+        ? formatMoneyPtBr(explicitUnitCostNum)
+        : deducedFromPackCost > 0
+          ? formatMoneyPtBr(deducedFromPackCost)
+          : "";
+
+    const explicitCategory = payload.productCategory?.trim() || "";
+    if (explicitCategory) {
+      this.categories.add(explicitCategory);
+    }
+
     // Verifica se o produto já existe nesta planilha
     const existingItem =
       behavior !== "new_row"
@@ -455,14 +539,23 @@ export class SheetStore {
       existingItem.lastCapturedByDeviceName = payload.deviceName;
       existingItem.updatedAt = now;
 
-      // Atualiza o preço se um novo valor válido foi detectado pela câmera/OCR ou digitado
+      if (explicitCategory) {
+        existingItem.productCategory = explicitCategory;
+      }
+
+      if (packPriceNum > 0 && packQtyNum > 0) {
+        existingItem.packPrice = formatMoneyPtBr(packPriceNum);
+        existingItem.packQuantity = packQtyNum;
+      }
+
+      // Atualiza o preço de venda se um novo valor válido foi detectado pela câmera/OCR ou digitado
       if (formattedIncomingPrice && formattedIncomingPrice !== "0,00") {
         if (previousPrice !== formattedIncomingPrice) {
           priceChanged = true;
           existingItem.productSalePrice = formattedIncomingPrice;
           existingItem.productUnitPrice = estimateUnitCostFromSalePrice(
             formattedIncomingPrice,
-            payload.detectedUnitPrice || existingItem.productUnitPrice,
+            explicitOrPackUnitCost || existingItem.productUnitPrice,
           );
           existingItem.priceHistory.push({
             price: formattedIncomingPrice,
@@ -470,7 +563,11 @@ export class SheetStore {
             timestamp: now,
             source: payload.priceSource ?? "ocr",
           });
+        } else if (explicitOrPackUnitCost) {
+          existingItem.productUnitPrice = explicitOrPackUnitCost;
         }
+      } else if (explicitOrPackUnitCost) {
+        existingItem.productUnitPrice = explicitOrPackUnitCost;
       }
 
       // Completa dados de catálogo se estavam genéricos antes
@@ -479,7 +576,9 @@ export class SheetStore {
         (existingItem.productName.startsWith("Produto ") || !existingItem.productName)
       ) {
         existingItem.productName = catalog.productName;
-        existingItem.productCategory = catalog.productCategory || existingItem.productCategory;
+        if (!explicitCategory && catalog.productCategory) {
+          existingItem.productCategory = catalog.productCategory;
+        }
         existingItem.brand = catalog.brand || existingItem.brand;
         existingItem.productDescription =
           catalog.productDescription || existingItem.productDescription;
@@ -508,7 +607,10 @@ export class SheetStore {
       formattedIncomingPrice && formattedIncomingPrice !== "0,00"
         ? formattedIncomingPrice
         : "0,00";
-    const finalUnitCost = estimateUnitCostFromSalePrice(finalSalePrice, payload.detectedUnitPrice);
+    const finalUnitCost = estimateUnitCostFromSalePrice(
+      finalSalePrice,
+      explicitOrPackUnitCost,
+    );
 
     const productName =
       payload.productName?.trim() ||
@@ -516,9 +618,13 @@ export class SheetStore {
       `Produto EAN ${productCode}`;
 
     const productCategory =
-      payload.productCategory?.trim() ||
+      explicitCategory ||
       catalog.productCategory ||
       "Mercearia";
+
+    if (productCategory) {
+      this.categories.add(productCategory);
+    }
 
     const brand = payload.brand?.trim() || catalog.brand || "";
 
@@ -547,6 +653,9 @@ export class SheetStore {
       productImageUrl: payload.productImageUrl?.trim() || catalog.productImageUrl || "",
       unitType: catalog.suggestedUnitType ?? "UN",
       catalogSource: catalog.found ? catalog.source : "Cadastro Instantâneo",
+      ...(packPriceNum > 0 && packQtyNum > 0
+        ? { packPrice: formatMoneyPtBr(packPriceNum), packQuantity: packQtyNum }
+        : {}),
       lastCapturedByDeviceId: payload.deviceId,
       lastCapturedByDeviceName: payload.deviceName,
       captureCount: 1,
@@ -597,6 +706,8 @@ export class SheetStore {
         | "productSalePrice"
         | "productCategory"
         | "brand"
+        | "packPrice"
+        | "packQuantity"
       >
     > & { deviceName?: string },
   ): { item: ScannedProductItem; sheet: SheetSummary } | null {
@@ -621,10 +732,22 @@ export class SheetStore {
       item.productDescription = updates.productDescription.trim() || item.productName;
     }
     if (updates.productCategory !== undefined) {
-      item.productCategory = updates.productCategory.trim();
+      const cat = updates.productCategory.trim();
+      item.productCategory = cat;
+      if (cat) {
+        this.categories.add(cat);
+      }
     }
     if (updates.brand !== undefined) {
       item.brand = updates.brand.trim();
+    }
+    if (updates.packPrice !== undefined) {
+      const p = parseMoneyPtBr(updates.packPrice);
+      item.packPrice = p > 0 ? formatMoneyPtBr(p) : undefined;
+    }
+    if (updates.packQuantity !== undefined) {
+      const q = Number(updates.packQuantity);
+      item.packQuantity = Number.isFinite(q) && q > 0 ? q : undefined;
     }
     if (updates.productQnt !== undefined) {
       const qnt = Number(updates.productQnt);

@@ -1,16 +1,21 @@
 /**
  * Arquivo: src/components/LiveCameraScanner.tsx
  * Objetivo: Visor de câmera sempre aberta para celular com análise contínua ao vivo (screenshots em tempo real).
- *           Detecta códigos de barras (EAN-13, EAN-8, UPC, Code128) via BarcodeDetector/ZXing
- *           e extrai preços da etiqueta de gôndola (R$ XX,XX) via OCR no navegador (Tesseract.js),
- *           contabilizando automaticamente os itens na planilha ativa.
+ *           Logo abaixo do leitor, disponibiliza preenchimento rápido de Quantidade, Preço Unitário de Venda/Custo,
+ *           Calculadora de Fardo (deduz custo unitário + sugere preço de venda por margem) e
+ *           criação/seleção instantânea de Categoria na hora.
  */
 
 import {
+  Calculator,
   Camera,
   CameraOff,
   CheckCircle2,
   Flashlight,
+  FolderPlus,
+  Minus,
+  Package,
+  Plus,
   RefreshCw,
   ScanBarcode,
   Sparkles,
@@ -19,7 +24,7 @@ import {
   VolumeX,
   Zap,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { BarcodeDetector as BarcodeDetectorPolyfill } from "barcode-detector/pure";
 import { createWorker, type Worker as TesseractWorker } from "tesseract.js";
 import type {
@@ -32,10 +37,17 @@ import {
   extractPricesFromOcrText,
   type ExtractedPriceCandidate,
 } from "@/utils/priceExtractor";
+import {
+  calculateMarginPercent,
+  calculateSalePriceFromMargin,
+  calculateUnitCostFromPack,
+} from "@/utils/packPricing";
 
 interface LiveCameraScannerProps {
   sheetName: string;
   sheetCode: string;
+  categories: string[];
+  onCreateCategory: (name: string) => Promise<string | null>;
   duplicateBehavior: DuplicateScanBehavior;
   onDuplicateBehaviorChange: (behavior: DuplicateScanBehavior) => void;
   soundEnabled: boolean;
@@ -43,9 +55,25 @@ interface LiveCameraScannerProps {
   onCaptureScan: (input: {
     productCode: string;
     detectedSalePrice?: string;
+    detectedUnitPrice?: string;
+    packPrice?: string;
+    packQuantity?: number;
     productName?: string;
+    productCategory?: string;
+    quantityDelta?: number;
     priceSource?: "ocr" | "manual" | "catalog";
   }) => Promise<LiveScanResponse | null>;
+  onApplyValuesToLastItem?: (
+    itemId: string,
+    updates: {
+      productQnt?: number;
+      productSalePrice?: string;
+      productUnitPrice?: string;
+      packPrice?: string;
+      packQuantity?: number;
+      productCategory?: string;
+    },
+  ) => Promise<void>;
   onCameraActiveChange: (active: boolean) => void;
   catalogSamples: CatalogSampleItem[];
   lastCaptureResult: LiveScanResponse | null;
@@ -61,14 +89,20 @@ const SUPPORTED_BARCODE_FORMATS = [
   "itf",
 ] as const;
 
+const MARGIN_PRESETS = [25, 30, 40, 50];
+const QUICK_QTY_PRESETS = [1, 6, 12, 24];
+
 export default function LiveCameraScanner({
   sheetName,
   sheetCode,
+  categories,
+  onCreateCategory,
   duplicateBehavior,
   onDuplicateBehaviorChange,
   soundEnabled,
   onToggleSound,
   onCaptureScan,
+  onApplyValuesToLastItem,
   onCameraActiveChange,
   catalogSamples,
   lastCaptureResult,
@@ -98,20 +132,148 @@ export default function LiveCameraScanner({
   const [cooldownMs, setCooldownMs] = useState(2400);
   const [scanFlash, setScanFlash] = useState(false);
 
-  // Entrada manual rápida / pistola leitora ou teste instantâneo
+  // Inputs rápidos logo abaixo do leitor: Quantidade, Preço Unitário de Venda e Custo
+  const [scanQuantity, setScanQuantity] = useState("1");
+  const [resetQuantityAfterScan, setResetQuantityAfterScan] = useState(true);
+  const [manualSalePrice, setManualSalePrice] = useState("");
+  const [manualUnitCost, setManualUnitCost] = useState("");
+
+  // Calculadora de Fardo (Preço do Fardo + Qtd no Fardo -> Custo Unitário + Sugestão de Venda)
+  const [showPackCalculator, setShowPackCalculator] = useState(true);
+  const [packPriceInput, setPackPriceInput] = useState("");
+  const [packQtyInput, setPackQtyInput] = useState("");
+  const [marginPercentInput, setMarginPercentInput] = useState("35");
+
+  // Seleção e criação imediata de Categoria na hora
+  const [selectedCategory, setSelectedCategory] = useState<string>("");
+  const [showNewCategoryForm, setShowNewCategoryForm] = useState(false);
+  const [newCategoryName, setNewCategoryName] = useState("");
+  const [creatingCategory, setCreatingCategory] = useState(false);
+
+  // Entrada manual rápida / pistola leitora
   const [manualBarcode, setManualBarcode] = useState("");
-  const [manualPrice, setManualPrice] = useState("");
   const [manualName, setManualName] = useState("");
   const [isSubmittingManual, setIsSubmittingManual] = useState(false);
+  const [applyingToLast, setApplyingToLast] = useState(false);
 
-  // Simulador de Gôndola ao Vivo (quando não há câmera física ou o usuário quer testar o fluxo ao vivo)
+  // Simulador de Gôndola ao Vivo
   const [autoSimulateShelf, setAutoSimulateShelf] = useState(false);
   const [simActiveProduct, setSimActiveProduct] = useState<CatalogSampleItem | null>(null);
 
-  const activePriceToApply =
+  const packUnitCost = useMemo(
+    () => calculateUnitCostFromPack(packPriceInput, packQtyInput),
+    [packPriceInput, packQtyInput],
+  );
+
+  // Custo efetivo: se usuário digitou custo unitário manualmente ou calculou pelo fardo
+  const effectiveUnitCost = manualUnitCost.trim() || packUnitCost.formatted;
+
+  const suggestedSaleFromMargin = useMemo(
+    () => calculateSalePriceFromMargin(effectiveUnitCost, marginPercentInput),
+    [effectiveUnitCost, marginPercentInput],
+  );
+
+  const activeSalePriceToApply =
     lockedPrice ||
-    manualPrice ||
+    manualSalePrice.trim() ||
     (detectedPriceCandidates[0]?.formatted ?? "");
+
+  const currentMarginPercent = useMemo(
+    () => calculateMarginPercent(effectiveUnitCost, activeSalePriceToApply),
+    [effectiveUnitCost, activeSalePriceToApply],
+  );
+
+  const parsedScanQty = useMemo(() => {
+    const val = Number.parseFloat(scanQuantity.replace(",", "."));
+    return Number.isFinite(val) && val > 0 ? Math.round(val * 1000) / 1000 : 1;
+  }, [scanQuantity]);
+
+  const parsedPackQty = useMemo(() => {
+    const val = Number.parseFloat(packQtyInput.replace(",", "."));
+    return Number.isFinite(val) && val > 0 ? val : undefined;
+  }, [packQtyInput]);
+
+  // Quando o fardo ou margem muda e deduz um novo custo unitário, atualiza o input de custo e sugere venda
+  const handlePackPriceOrQtyChange = (nextPackPrice: string, nextPackQty: string) => {
+    setPackPriceInput(nextPackPrice);
+    setPackQtyInput(nextPackQty);
+    const computed = calculateUnitCostFromPack(nextPackPrice, nextPackQty);
+    if (computed.formatted) {
+      setManualUnitCost(computed.formatted);
+      const suggested = calculateSalePriceFromMargin(computed.formatted, marginPercentInput);
+      if (suggested.formatted) {
+        setManualSalePrice(suggested.formatted);
+      }
+    }
+  };
+
+  const handleMarginChange = (nextMargin: string) => {
+    setMarginPercentInput(nextMargin);
+    if (effectiveUnitCost) {
+      const suggested = calculateSalePriceFromMargin(effectiveUnitCost, nextMargin);
+      if (suggested.formatted) {
+        setManualSalePrice(suggested.formatted);
+      }
+    }
+  };
+
+  const handleStepScanQty = (delta: number) => {
+    const next = Math.max(1, Math.round((parsedScanQty + delta) * 1000) / 1000);
+    setScanQuantity(String(next));
+  };
+
+  const handleCreateCategoryInline = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    setCreatingCategory(true);
+    try {
+      const created = await onCreateCategory(trimmed);
+      if (created) {
+        setSelectedCategory(created);
+        setNewCategoryName("");
+        setShowNewCategoryForm(false);
+      }
+    } finally {
+      setCreatingCategory(false);
+    }
+  };
+
+  const buildCurrentScanExtras = useCallback(() => {
+    const salePrice =
+      lockedPrice ||
+      manualSalePrice.trim() ||
+      (detectedPriceCandidates[0]?.formatted ?? undefined);
+
+    return {
+      detectedSalePrice: salePrice,
+      detectedUnitPrice: effectiveUnitCost || undefined,
+      packPrice: packPriceInput.trim() || undefined,
+      packQuantity: parsedPackQty,
+      productCategory: selectedCategory || undefined,
+      quantityDelta: parsedScanQty,
+      priceSource: (lockedPrice || manualSalePrice.trim()
+        ? "manual"
+        : salePrice
+          ? "ocr"
+          : "catalog") as "ocr" | "manual" | "catalog",
+    };
+  }, [
+    lockedPrice,
+    manualSalePrice,
+    detectedPriceCandidates,
+    effectiveUnitCost,
+    packPriceInput,
+    parsedPackQty,
+    selectedCategory,
+    parsedScanQty,
+  ]);
+
+  const finalizeAfterScan = useCallback(() => {
+    if (resetQuantityAfterScan) {
+      setScanQuantity("1");
+    }
+  }, [resetQuantityAfterScan]);
 
   const stopCamera = useCallback(() => {
     if (streamRef.current) {
@@ -155,7 +317,6 @@ export default function LiveCameraScanner({
         await videoRef.current.play();
       }
 
-      // Verifica suporte a lanterna (torch) no celular
       const videoTrack = stream.getVideoTracks()[0];
       if (videoTrack && "getCapabilities" in videoTrack) {
         const caps = videoTrack.getCapabilities() as Record<string, unknown>;
@@ -177,7 +338,6 @@ export default function LiveCameraScanner({
     }
   }, [facingMode, onCameraActiveChange, stopCamera]);
 
-  // Tenta abrir a câmera automaticamente ao entrar na tela (câmera sempre aberta)
   useEffect(() => {
     startCamera();
     return () => {
@@ -200,7 +360,7 @@ export default function LiveCameraScanner({
     }
   };
 
-  // Inicializa o worker de OCR (Tesseract.js) quando o OCR ao vivo está habilitado
+  // Inicializa o worker de OCR (Tesseract.js)
   useEffect(() => {
     let cancelled = false;
     if (!liveOcrEnabled || !isCameraActive) {
@@ -233,7 +393,6 @@ export default function LiveCameraScanner({
     };
   }, [liveOcrEnabled, isCameraActive]);
 
-  // Finaliza worker de OCR ao desmontar
   useEffect(() => {
     return () => {
       if (ocrWorkerRef.current) {
@@ -292,16 +451,12 @@ export default function LiveCameraScanner({
               setScanFlash(true);
               window.setTimeout(() => setScanFlash(false), 380);
 
-              const priceToSend =
-                lockedPrice ||
-                manualPrice ||
-                (detectedPriceCandidates[0]?.formatted ?? undefined);
-
+              const extras = buildCurrentScanExtras();
               await onCaptureScan({
                 productCode: validCode,
-                detectedSalePrice: priceToSend,
-                priceSource: priceToSend ? "ocr" : "catalog",
+                ...extras,
               });
+              finalizeAfterScan();
             }
           }
         }
@@ -317,13 +472,12 @@ export default function LiveCameraScanner({
   }, [
     isCameraActive,
     cooldownMs,
-    lockedPrice,
-    manualPrice,
-    detectedPriceCandidates,
+    buildCurrentScanExtras,
     onCaptureScan,
+    finalizeAfterScan,
   ]);
 
-  // Loop contínuo 2: Captura de screenshots da região da etiqueta para OCR de Preço (R$ XX,XX)
+  // Loop contínuo 2: OCR de Preço na etiqueta
   useEffect(() => {
     if (!isCameraActive || !liveOcrEnabled) return;
 
@@ -348,7 +502,7 @@ export default function LiveCameraScanner({
           setDetectedPriceCandidates(extracted.slice(0, 4));
         }
       } catch {
-        // ignora falha pontual de frame
+        // ignora falha pontual
       } finally {
         ocrBusyRef.current = false;
       }
@@ -359,7 +513,7 @@ export default function LiveCameraScanner({
     };
   }, [isCameraActive, liveOcrEnabled]);
 
-  // Loop contínuo 3: Simulador de Gôndola ao Vivo (para testar/demonstrar o fluxo contínuo mesmo sem câmera física)
+  // Loop contínuo 3: Simulador de Gôndola ao Vivo
   useEffect(() => {
     if (!autoSimulateShelf || catalogSamples.length === 0) return;
 
@@ -388,17 +542,25 @@ export default function LiveCameraScanner({
       setScanFlash(true);
       window.setTimeout(() => setScanFlash(false), 360);
 
+      const extras = buildCurrentScanExtras();
       await onCaptureScan({
         productCode: sample.barcode,
-        detectedSalePrice: lockedPrice || priceFormatted,
         productName: sample.productName,
-        priceSource: "ocr",
+        ...extras,
+        detectedSalePrice: extras.detectedSalePrice || priceFormatted,
       });
+      finalizeAfterScan();
     };
 
     const timer = window.setInterval(runStep, 2600);
     return () => window.clearInterval(timer);
-  }, [autoSimulateShelf, catalogSamples, lockedPrice, onCaptureScan]);
+  }, [
+    autoSimulateShelf,
+    catalogSamples,
+    buildCurrentScanExtras,
+    onCaptureScan,
+    finalizeAfterScan,
+  ]);
 
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -409,14 +571,15 @@ export default function LiveCameraScanner({
     try {
       setScanFlash(true);
       window.setTimeout(() => setScanFlash(false), 350);
+      const extras = buildCurrentScanExtras();
       await onCaptureScan({
         productCode: cleanCode,
-        detectedSalePrice: manualPrice.trim() || activePriceToApply || undefined,
         productName: manualName.trim() || undefined,
-        priceSource: manualPrice.trim() ? "manual" : "ocr",
+        ...extras,
       });
       setManualBarcode("");
       setManualName("");
+      finalizeAfterScan();
     } finally {
       setIsSubmittingManual(false);
     }
@@ -440,12 +603,32 @@ export default function LiveCameraScanner({
     setScanFlash(true);
     window.setTimeout(() => setScanFlash(false), 350);
 
+    const extras = buildCurrentScanExtras();
     await onCaptureScan({
       productCode: sample.barcode,
-      detectedSalePrice: lockedPrice || manualPrice || priceFormatted,
       productName: sample.productName,
-      priceSource: "ocr",
+      ...extras,
+      detectedSalePrice: extras.detectedSalePrice || priceFormatted,
     });
+    finalizeAfterScan();
+  };
+
+  const handleApplyToLastCaptured = async () => {
+    if (!lastCaptureResult || !onApplyValuesToLastItem) return;
+    setApplyingToLast(true);
+    try {
+      const extras = buildCurrentScanExtras();
+      await onApplyValuesToLastItem(lastCaptureResult.item.id, {
+        productQnt: parsedScanQty,
+        ...(extras.detectedSalePrice ? { productSalePrice: extras.detectedSalePrice } : {}),
+        ...(extras.detectedUnitPrice ? { productUnitPrice: extras.detectedUnitPrice } : {}),
+        ...(extras.packPrice ? { packPrice: extras.packPrice } : {}),
+        ...(extras.packQuantity ? { packQuantity: extras.packQuantity } : {}),
+        ...(extras.productCategory ? { productCategory: extras.productCategory } : {}),
+      });
+    } finally {
+      setApplyingToLast(false);
+    }
   };
 
   return (
@@ -529,12 +712,7 @@ export default function LiveCameraScanner({
 
         {/* Overlay de Mira Dupla: Código de Barras + Etiqueta de Preço */}
         <div className="hud-overlay">
-          {/* Guia Superior: Código de Barras EAN / GTIN */}
           <div className="hud-zone hud-zone-barcode">
-            <div className="hud-corner tl" />
-            <div className="hud-corner tr" />
-            <div className="hud-corner bl" />
-            <div className="hud-corner br" />
             <div className="laser-line" />
             <div className="hud-zone-header">
               <ScanBarcode size={14} />
@@ -549,7 +727,6 @@ export default function LiveCameraScanner({
             </div>
           </div>
 
-          {/* Guia Inferior: OCR de Preço da Etiqueta de Gôndola */}
           <div className="hud-zone hud-zone-price">
             <div className="hud-zone-header">
               <Tag size={14} />
@@ -564,10 +741,10 @@ export default function LiveCameraScanner({
               </span>
             </div>
             <div className="hud-zone-readout">
-              {activePriceToApply ? (
+              {activeSalePriceToApply ? (
                 <span className="detected-price-badge">
-                  R$ {activePriceToApply}
-                  {lockedPrice ? " (travado)" : " (ao vivo)"}
+                  R$ {activeSalePriceToApply}
+                  {lockedPrice ? " (travado)" : manualSalePrice ? " (definido)" : " (ao vivo)"}
                 </span>
               ) : (
                 <span className="hud-hint">Enquadre o valor R$ XX,XX da gôndola</span>
@@ -576,7 +753,7 @@ export default function LiveCameraScanner({
           </div>
         </div>
 
-        {/* Caso câmera física não esteja aberta (ex: desktop sem webcam ou permissão pendente), exibe o Simulador Interativo de Gôndola */}
+        {/* Caso câmera física não esteja aberta */}
         {!isCameraActive ? (
           <div className="virtual-shelf-stage">
             <div className="virtual-shelf-header">
@@ -613,7 +790,281 @@ export default function LiveCameraScanner({
         ) : null}
       </div>
 
-      {/* Feedback imediato da última leitura contabilizada */}
+      {/* PAINEL RÁPIDO LOGO ABAIXO DO LEITOR: Quantidade, Preço Unitário, Fardo e Categoria na Hora */}
+      <div className="quick-entry-dock" aria-label="Preenchimento Rápido de Quantidade, Preço, Fardo e Categoria">
+        <div className="quick-dock-header">
+          <div className="quick-dock-title">
+            <Package size={15} />
+            <span>Preenchimento Rápido para Leitura</span>
+          </div>
+          <label className="ocr-toggle-label">
+            <input
+              type="checkbox"
+              checked={resetQuantityAfterScan}
+              onChange={(e) => setResetQuantityAfterScan(e.target.checked)}
+            />
+            <span>Voltar Qtd p/ 1 após bipar</span>
+          </label>
+        </div>
+
+        {/* Linha 1: Quantidade + Preço de Venda Unitário + Preço de Custo Unitário */}
+        <div className="quick-qty-price-grid">
+          <div className="input-group">
+            <label htmlFor="input-quick-qty">Quantidade</label>
+            <div className="qty-input-stepper">
+              <button
+                type="button"
+                id="btn-quick-qty-minus"
+                onClick={() => handleStepScanQty(-1)}
+                className="qty-step-btn"
+                aria-label="Diminuir quantidade"
+              >
+                <Minus size={15} />
+              </button>
+              <input
+                id="input-quick-qty"
+                type="text"
+                inputMode="decimal"
+                value={scanQuantity}
+                onChange={(e) => setScanQuantity(e.target.value)}
+                className="qty-numeric-input font-mono"
+              />
+              <button
+                type="button"
+                id="btn-quick-qty-plus"
+                onClick={() => handleStepScanQty(1)}
+                className="qty-step-btn"
+                aria-label="Aumentar quantidade"
+              >
+                <Plus size={15} />
+              </button>
+            </div>
+            <div className="mini-presets-row">
+              {QUICK_QTY_PRESETS.map((q) => (
+                <button
+                  key={q}
+                  type="button"
+                  onClick={() => setScanQuantity(String(q))}
+                  className={`mini-chip-btn ${parsedScanQty === q ? "is-selected" : ""}`}
+                >
+                  {q}x
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="input-group">
+            <label htmlFor="input-quick-unit-cost">Custo Unitário (R$)</label>
+            <input
+              id="input-quick-unit-cost"
+              type="text"
+              inputMode="decimal"
+              placeholder={packUnitCost.formatted ? `Fardo: ${packUnitCost.formatted}` : "Auto ou fardo"}
+              value={manualUnitCost}
+              onChange={(e) => setManualUnitCost(e.target.value)}
+              className="scanner-input font-mono"
+            />
+            <span className="field-helper-text">
+              {packUnitCost.formatted
+                ? `Calculado pelo fardo: R$ ${packUnitCost.formatted}`
+                : "Ou use o cálculo do fardo abaixo"}
+            </span>
+          </div>
+
+          <div className="input-group">
+            <label htmlFor="input-quick-sale-price">Preço Unitário Venda (R$)</label>
+            <input
+              id="input-quick-sale-price"
+              type="text"
+              inputMode="decimal"
+              placeholder={
+                lockedPrice
+                  ? `Travado: ${lockedPrice}`
+                  : suggestedSaleFromMargin.formatted
+                    ? `Sug.: ${suggestedSaleFromMargin.formatted}`
+                    : detectedPriceCandidates[0]?.formatted
+                      ? `OCR: ${detectedPriceCandidates[0].formatted}`
+                      : "Ex: 8,90"
+              }
+              value={manualSalePrice}
+              onChange={(e) => setManualSalePrice(e.target.value)}
+              className="scanner-input font-mono"
+            />
+            <span className="field-helper-text">
+              {currentMarginPercent !== null ? (
+                <span className="margin-badge-inline">
+                  Margem real: <strong>{currentMarginPercent > 0 ? `+${currentMarginPercent}%` : `${currentMarginPercent}%`}</strong>
+                </span>
+              ) : (
+                "Vazio = usa OCR/catálogo"
+              )}
+            </span>
+          </div>
+        </div>
+
+        {/* Linha 2: Calculadora de Fardo / Caixa -> Custo Unitário e Sugestão de Venda */}
+        <div className="pack-calc-box">
+          <div className="pack-calc-header">
+            <button
+              type="button"
+              id="btn-toggle-pack-calc"
+              onClick={() => setShowPackCalculator((v) => !v)}
+              className="pack-calc-toggle"
+            >
+              <Calculator size={15} />
+              <span>Calcular Custo & Venda pelo Fardo / Caixa</span>
+              <span className="pack-chevron">{showPackCalculator ? "Ocultar" : "Abrir"}</span>
+            </button>
+            {packUnitCost.formatted ? (
+              <span className="pack-result-pill">
+                Custo/un: <strong>R$ {packUnitCost.formatted}</strong>
+              </span>
+            ) : null}
+          </div>
+
+          {showPackCalculator ? (
+            <div className="pack-calc-body">
+              <div className="pack-inputs-grid">
+                <div className="input-group">
+                  <label htmlFor="input-pack-price">Preço pago no Fardo (R$)</label>
+                  <input
+                    id="input-pack-price"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="Ex: 48,00"
+                    value={packPriceInput}
+                    onChange={(e) => handlePackPriceOrQtyChange(e.target.value, packQtyInput)}
+                    className="scanner-input font-mono"
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="input-pack-qty">Qtd no Fardo (unid.)</label>
+                  <input
+                    id="input-pack-qty"
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="Ex: 12"
+                    value={packQtyInput}
+                    onChange={(e) => handlePackPriceOrQtyChange(packPriceInput, e.target.value)}
+                    className="scanner-input font-mono"
+                  />
+                </div>
+
+                <div className="input-group">
+                  <label htmlFor="input-pack-margin">Margem p/ Venda (%)</label>
+                  <input
+                    id="input-pack-margin"
+                    type="text"
+                    inputMode="decimal"
+                    placeholder="35"
+                    value={marginPercentInput}
+                    onChange={(e) => handleMarginChange(e.target.value)}
+                    className="scanner-input font-mono"
+                  />
+                </div>
+              </div>
+
+              <div className="pack-actions-strip">
+                <div className="mini-presets-row">
+                  <span className="presets-label">Margem rápida:</span>
+                  {MARGIN_PRESETS.map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => handleMarginChange(String(m))}
+                      className={`mini-chip-btn amber ${Number(marginPercentInput) === m ? "is-selected" : ""}`}
+                    >
+                      +{m}%
+                    </button>
+                  ))}
+                </div>
+
+                {parsedPackQty ? (
+                  <button
+                    type="button"
+                    id="btn-use-pack-qty-stock"
+                    onClick={() => setScanQuantity(String(parsedPackQty))}
+                    className="btn-use-pack-qty"
+                  >
+                    Jogar {parsedPackQty} un. na Quantidade
+                  </button>
+                ) : null}
+              </div>
+
+              {packUnitCost.formatted ? (
+                <div className="pack-summary-line">
+                  <span>
+                    Fardo R$ {packPriceInput} ÷ {packQtyInput} un ={" "}
+                    <strong className="text-emerald">Custo R$ {packUnitCost.formatted}</strong>
+                  </span>
+                  {suggestedSaleFromMargin.formatted ? (
+                    <span>
+                      · Sugestão (+{marginPercentInput || 0}%):{" "}
+                      <strong className="text-amber">Venda R$ {suggestedSaleFromMargin.formatted}</strong>
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+        </div>
+
+        {/* Linha 3: Selecionar ou Criar Categoria na Hora */}
+        <div className="category-instant-box">
+          <div className="category-select-row">
+            <div className="input-group category-select-wrap">
+              <label htmlFor="select-instant-category">Categoria do Produto (selecionar na hora)</label>
+              <select
+                id="select-instant-category"
+                value={selectedCategory}
+                onChange={(e) => setSelectedCategory(e.target.value)}
+                className="scanner-select"
+              >
+                <option value="">Automática (identificar pelo código de barras)</option>
+                {categories.map((cat) => (
+                  <option key={cat} value={cat}>
+                    {cat}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              type="button"
+              id="btn-toggle-new-category"
+              onClick={() => setShowNewCategoryForm((v) => !v)}
+              className={`btn-new-category ${showNewCategoryForm ? "is-active" : ""}`}
+            >
+              <FolderPlus size={16} />
+              <span>Nova Categoria</span>
+            </button>
+          </div>
+
+          {showNewCategoryForm ? (
+            <form onSubmit={handleCreateCategoryInline} className="new-category-inline-form">
+              <input
+                id="input-new-category-name"
+                type="text"
+                placeholder="Nome da nova categoria (ex: Bomboniere, Frios, Padaria...)"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                className="scanner-input"
+              />
+              <button
+                type="submit"
+                id="btn-confirm-new-category"
+                disabled={!newCategoryName.trim() || creatingCategory}
+                className="btn-create-category-confirm"
+              >
+                {creatingCategory ? "Criando..." : "Criar & Selecionar"}
+              </button>
+            </form>
+          ) : null}
+        </div>
+      </div>
+
+      {/* Feedback imediato da última leitura contabilizada + botão para aplicar valores nela */}
       {lastCaptureResult ? (
         <div
           className={`last-capture-toast action-${lastCaptureResult.action}`}
@@ -629,9 +1080,9 @@ export default function LiveCameraScanner({
                 {lastCaptureResult.action === "created"
                   ? "NOVO PRODUTO"
                   : lastCaptureResult.action === "updated_price"
-                    ? "QTD +1 & PREÇO ATUALIZADO"
+                    ? "QTD & PREÇO ATUALIZADOS"
                     : lastCaptureResult.action === "incremented"
-                      ? `CONTABILIZADO (+1 → ${lastCaptureResult.item.productQnt} UN)`
+                      ? `CONTABILIZADO (TOTAL: ${lastCaptureResult.item.productQnt} UN)`
                       : "IGNORADO (JÁ CADASTRADO)"}
               </span>
               <span className="capture-barcode-mono">
@@ -644,15 +1095,30 @@ export default function LiveCameraScanner({
                 Venda: <strong>R$ {lastCaptureResult.item.productSalePrice}</strong>
               </span>
               <span>
-                Custo est.: <strong>R$ {lastCaptureResult.item.productUnitPrice}</strong>
+                Custo: <strong>R$ {lastCaptureResult.item.productUnitPrice}</strong>
               </span>
               <span>
-                Qtd na planilha: <strong>{lastCaptureResult.item.productQnt}</strong>
+                Qtd: <strong>{lastCaptureResult.item.productQnt}</strong>
               </span>
               <span>
-                Fonte: <strong>{lastCaptureResult.item.catalogSource}</strong>
+                Categoria: <strong>{lastCaptureResult.item.productCategory}</strong>
               </span>
             </div>
+            {onApplyValuesToLastItem ? (
+              <div className="last-capture-actions">
+                <button
+                  type="button"
+                  id="btn-apply-to-last-item"
+                  disabled={applyingToLast}
+                  onClick={handleApplyToLastCaptured}
+                  className="btn-apply-last"
+                >
+                  {applyingToLast
+                    ? "Atualizando..."
+                    : "Aplicar Qtd / Custo / Venda / Categoria acima neste item"}
+                </button>
+              </div>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -677,7 +1143,7 @@ export default function LiveCameraScanner({
         <div className="price-chips-row">
           {detectedPriceCandidates.length === 0 ? (
             <span className="empty-price-chip">
-              Nenhum preço travado (usará o preço do frame atual ou sugerido do catálogo)
+              Nenhum preço travado (usará o preço digitado, do frame atual ou do catálogo)
             </span>
           ) : (
             detectedPriceCandidates.map((cand) => {
@@ -686,7 +1152,11 @@ export default function LiveCameraScanner({
                 <button
                   key={cand.formatted}
                   type="button"
-                  onClick={() => setLockedPrice(isLocked ? "" : cand.formatted)}
+                  onClick={() => {
+                    const next = isLocked ? "" : cand.formatted;
+                    setLockedPrice(next);
+                    if (next) setManualSalePrice(next);
+                  }}
                   className={`price-candidate-chip ${isLocked ? "is-locked" : ""}`}
                 >
                   <span>R$ {cand.formatted}</span>
@@ -720,7 +1190,7 @@ export default function LiveCameraScanner({
             className="scanner-select"
           >
             <option value="increment">
-              Somar quantidade (+1) e atualizar preço
+              Somar quantidade e atualizar preço
             </option>
             <option value="ignore">
               Ignorar código repetido (apenas catalogar únicos)
@@ -744,11 +1214,11 @@ export default function LiveCameraScanner({
         </div>
       </div>
 
-      {/* Prateleira Rápida de Produtos de Mercadinho (1 toque para simular leitura de câmera) */}
+      {/* Prateleira Rápida de Produtos de Mercadinho */}
       <div className="quick-shelf-drawer">
         <div className="quick-shelf-header">
           <span>
-            Simulador de Gôndola · Toque num item para disparar captura de código + preço em{" "}
+            Simulador de Gôndola · Toque num item para disparar captura em{" "}
             <strong>{sheetName}</strong> ({sheetCode}):
           </span>
         </div>
@@ -770,7 +1240,7 @@ export default function LiveCameraScanner({
         </div>
       </div>
 
-      {/* Entrada Rápida / Leitor USB ou Bluetooth / Ajuste de Preço antes de capturar */}
+      {/* Entrada Manual Rápida por Código de Barras */}
       <form onSubmit={handleManualSubmit} className="manual-capture-form">
         <div className="manual-inputs-grid">
           <div className="input-group">
@@ -782,19 +1252,6 @@ export default function LiveCameraScanner({
               placeholder="Ex: 7894900011517"
               value={manualBarcode}
               onChange={(e) => setManualBarcode(e.target.value)}
-              className="scanner-input font-mono"
-            />
-          </div>
-
-          <div className="input-group">
-            <label htmlFor="input-manual-price">Preço Venda (R$)</label>
-            <input
-              id="input-manual-price"
-              type="text"
-              inputMode="decimal"
-              placeholder={activePriceToApply ? `Auto: ${activePriceToApply}` : "Ex: 8,90"}
-              value={manualPrice}
-              onChange={(e) => setManualPrice(e.target.value)}
               className="scanner-input font-mono"
             />
           </div>
@@ -822,7 +1279,7 @@ export default function LiveCameraScanner({
           <span>
             {isSubmittingManual
               ? "Consultando EAN & Contabilizando..."
-              : "Capturar Código + Preço na Planilha"}
+              : `Capturar (${parsedScanQty}x)${selectedCategory ? ` · ${selectedCategory}` : ""}`}
           </span>
         </button>
       </form>

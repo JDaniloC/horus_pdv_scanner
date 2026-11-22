@@ -13,17 +13,22 @@ Todas as capturas alimentam em tempo real planilhas colaborativas sincronizadas 
    - **Zona 2 — OCR de Preço da Etiqueta**: Recorte inteligente de alto contraste da etiqueta de gôndola para identificar preços em Reais (`R$ XX,XX`, `POR XX,XX`, `OFERTA XX,XX`) sem custos de API externa.
    - **Enriquecimento Automático via Código de Barras**: Ao detectar o EAN, busca automaticamente `Nome do Produto`, `Marca`, `Categoria`, `Descrição` e `Imagem` em bases públicas e estima o `PrecoCusto` caso apenas o `PrecoVenda` esteja na gôndola.
 
-2. **Contabilização Inteligente**:
-   - **Soma Automática (`+1`)**: Ao passar novamente por um código já lido, soma a quantidade automaticamente e atualiza o preço caso um novo valor seja detectado na etiqueta (com bipe sonoro de supermercado e vibração).
-   - **Modos Configuráveis**: Alternância rápida entre *Somar quantidade (+1)*, *Ignorar códigos repetidos* ou *Criar nova linha*.
+2. **Preenchimento Rápido, Calculadora de Fardo e Categoria na Hora**:
+   - **Quantidade & Preço Unitário no Leitor**: Logo abaixo da câmera ficam os campos diretos de `Quantidade` (com botões `-`/`+` e atalhos `1x`, `6x`, `12x`, `24x`), `Custo Unitário` e `Preço Unitário de Venda`.
+   - **Calculadora de Fardo / Caixa**: Informe o **preço pago no fardo** e a **quantidade que vem no fardo** para deduzir automaticamente o `PrecoCusto` unitário e sugerir o `PrecoVenda` com base na margem desejada (`+25%`, `+30%`, `+40%`, `+50%` ou personalizada).
+   - **Categoria na Hora**: Selecione ou crie uma nova categoria diretamente no painel do leitor (ou ao editar um item), sincronizada em tempo real com todos os celulares conectados.
 
-3. **Multi-Celulares Simultâneos & Unificação de Planilhas**:
+3. **Contabilização Inteligente**:
+   - **Soma Automática**: Ao passar novamente por um código já lido, soma a quantidade informada e atualiza o preço caso um novo valor seja detectado na etiqueta (com bipe sonoro de supermercado e vibração).
+   - **Modos Configuráveis**: Alternância rápida entre *Somar quantidade*, *Ignorar códigos repetidos* ou *Criar nova linha*.
+
+4. **Multi-Celulares Simultâneos & Unificação de Planilhas**:
    - **Sincronização em Tempo Real (WebSocket)**: Vários celulares podem entrar na mesma planilha via **QR Code** ou código curto (ex.: `MERC-101`).
    - **Fusão / Unificação de Diferentes Planilhas**: Caso cada celular trabalhe em uma planilha separada (ex.: *Corredor 1 - Mercearia*, *Corredor 2 - Bebidas*, ou upload de `.xlsx`/`.csv` externo), o painel **"Juntar Celulares"** consolida todos os itens pelo código de barras, somando as quantidades e resolvendo divergências de preço (*Mais recente*, *Maior preço*, *Menor preço* ou *Manter primeiro*).
 
-4. **Exportação 100% Compatível com o Horus PDV**:
-   - Gera arquivos `.xlsx` e `.csv` com as exatas 7 colunas esperadas pelo `ProductImportDrawer` do Horus PDV:
-     `Codigo` | `Nome` | `Fornecedor` | `Descricao` | `Quantidade` | `PrecoCusto` | `PrecoVenda`
+5. **Exportação 100% Compatível com o Horus PDV**:
+   - Gera arquivos `.xlsx` e `.csv` com as colunas esperadas pelo `ProductImportDrawer` do Horus PDV:
+     `Codigo` | `Nome` | `Fornecedor` | `Descricao` | `Quantidade` | `PrecoCusto` | `PrecoVenda` | `Categoria`
 
 ---
 
