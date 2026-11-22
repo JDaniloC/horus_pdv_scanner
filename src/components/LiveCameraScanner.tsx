@@ -8,6 +8,7 @@
 
 import {
   Calculator,
+  Calendar,
   Camera,
   CameraOff,
   CheckCircle2,
@@ -42,6 +43,11 @@ import {
   calculateSalePriceFromMargin,
   calculateUnitCostFromPack,
 } from "@/utils/packPricing";
+import {
+  addDaysIsoDate,
+  formatExpirationPtBr,
+  type ExpirationPresetMode,
+} from "@/utils/expirationDate";
 
 interface LiveCameraScannerProps {
   sheetName: string;
@@ -58,6 +64,7 @@ interface LiveCameraScannerProps {
     detectedUnitPrice?: string;
     packPrice?: string;
     packQuantity?: number;
+    expirationDate?: string | null;
     productName?: string;
     productCategory?: string;
     quantityDelta?: number;
@@ -71,6 +78,7 @@ interface LiveCameraScannerProps {
       productUnitPrice?: string;
       packPrice?: string;
       packQuantity?: number;
+      expirationDate?: string | null;
       productCategory?: string;
     },
   ) => Promise<void>;
@@ -150,6 +158,12 @@ export default function LiveCameraScanner({
   const [newCategoryName, setNewCategoryName] = useState("");
   const [creatingCategory, setCreatingCategory] = useState(false);
 
+  // Data de Vencimento (Sem vencimento / Nulo, +30 dias, ou data específica)
+  const [expirationMode, setExpirationMode] = useState<ExpirationPresetMode>("none");
+  const [customExpirationDate, setCustomExpirationDate] = useState<string>(() =>
+    addDaysIsoDate(30),
+  );
+
   // Entrada manual rápida / pistola leitora
   const [manualBarcode, setManualBarcode] = useState("");
   const [manualName, setManualName] = useState("");
@@ -159,6 +173,12 @@ export default function LiveCameraScanner({
   // Simulador de Gôndola ao Vivo
   const [autoSimulateShelf, setAutoSimulateShelf] = useState(false);
   const [simActiveProduct, setSimActiveProduct] = useState<CatalogSampleItem | null>(null);
+
+  const effectiveExpirationDate = useMemo<string | null>(() => {
+    if (expirationMode === "none") return null;
+    if (expirationMode === "30_days") return addDaysIsoDate(30);
+    return customExpirationDate.trim() || null;
+  }, [expirationMode, customExpirationDate]);
 
   const packUnitCost = useMemo(
     () => calculateUnitCostFromPack(packPriceInput, packQtyInput),
@@ -250,6 +270,7 @@ export default function LiveCameraScanner({
       detectedUnitPrice: effectiveUnitCost || undefined,
       packPrice: packPriceInput.trim() || undefined,
       packQuantity: parsedPackQty,
+      expirationDate: effectiveExpirationDate,
       productCategory: selectedCategory || undefined,
       quantityDelta: parsedScanQty,
       priceSource: (lockedPrice || manualSalePrice.trim()
@@ -265,6 +286,7 @@ export default function LiveCameraScanner({
     effectiveUnitCost,
     packPriceInput,
     parsedPackQty,
+    effectiveExpirationDate,
     selectedCategory,
     parsedScanQty,
   ]);
@@ -624,6 +646,7 @@ export default function LiveCameraScanner({
         ...(extras.detectedUnitPrice ? { productUnitPrice: extras.detectedUnitPrice } : {}),
         ...(extras.packPrice ? { packPrice: extras.packPrice } : {}),
         ...(extras.packQuantity ? { packQuantity: extras.packQuantity } : {}),
+        expirationDate: extras.expirationDate,
         ...(extras.productCategory ? { productCategory: extras.productCategory } : {}),
       });
     } finally {
@@ -1062,6 +1085,60 @@ export default function LiveCameraScanner({
             </form>
           ) : null}
         </div>
+
+        {/* Linha 4: Data de Vencimento (Nulo, +30 dias ou Data Específica) */}
+        <div className="expiration-instant-box">
+          <div className="expiration-header-row">
+            <span className="expiration-label">
+              <Calendar size={14} />
+              <span>Validade / Data de Vencimento:</span>
+            </span>
+            <span className="expiration-preview-badge">
+              {effectiveExpirationDate
+                ? `Vence em ${formatExpirationPtBr(effectiveExpirationDate)}`
+                : "Sem vencimento (Nulo)"}
+            </span>
+          </div>
+
+          <div className="expiration-modes-row">
+            <button
+              type="button"
+              id="btn-exp-none"
+              onClick={() => setExpirationMode("none")}
+              className={`exp-mode-btn ${expirationMode === "none" ? "is-selected" : ""}`}
+            >
+              Sem vencimento (Nulo)
+            </button>
+
+            <button
+              type="button"
+              id="btn-exp-30d"
+              onClick={() => setExpirationMode("30_days")}
+              className={`exp-mode-btn ${expirationMode === "30_days" ? "is-selected" : ""}`}
+            >
+              +30 dias ({formatExpirationPtBr(addDaysIsoDate(30))})
+            </button>
+
+            <button
+              type="button"
+              id="btn-exp-custom"
+              onClick={() => setExpirationMode("custom")}
+              className={`exp-mode-btn ${expirationMode === "custom" ? "is-selected" : ""}`}
+            >
+              Escolher Data
+            </button>
+
+            {expirationMode === "custom" ? (
+              <input
+                id="input-custom-expiration-date"
+                type="date"
+                value={customExpirationDate}
+                onChange={(e) => setCustomExpirationDate(e.target.value)}
+                className="scanner-input exp-date-input font-mono"
+              />
+            ) : null}
+          </div>
+        </div>
       </div>
 
       {/* Feedback imediato da última leitura contabilizada + botão para aplicar valores nela */}
@@ -1103,6 +1180,14 @@ export default function LiveCameraScanner({
               <span>
                 Categoria: <strong>{lastCaptureResult.item.productCategory}</strong>
               </span>
+              <span>
+                Vencimento:{" "}
+                <strong>
+                  {lastCaptureResult.item.expirationDate
+                    ? formatExpirationPtBr(lastCaptureResult.item.expirationDate)
+                    : "Nulo"}
+                </strong>
+              </span>
             </div>
             {onApplyValuesToLastItem ? (
               <div className="last-capture-actions">
@@ -1115,7 +1200,7 @@ export default function LiveCameraScanner({
                 >
                   {applyingToLast
                     ? "Atualizando..."
-                    : "Aplicar Qtd / Custo / Venda / Categoria acima neste item"}
+                    : "Aplicar Qtd / Custo / Venda / Categoria / Validade acima neste item"}
                 </button>
               </div>
             ) : null}

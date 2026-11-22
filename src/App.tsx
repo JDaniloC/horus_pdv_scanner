@@ -253,6 +253,7 @@ export default function App() {
       detectedUnitPrice?: string;
       packPrice?: string;
       packQuantity?: number;
+      expirationDate?: string | null;
       productName?: string;
       productCategory?: string;
       quantityDelta?: number;
@@ -267,6 +268,7 @@ export default function App() {
           detectedUnitPrice: input.detectedUnitPrice,
           packPrice: input.packPrice,
           packQuantity: input.packQuantity,
+          expirationDate: input.expirationDate,
           productName: input.productName,
           productCategory: input.productCategory,
           quantityDelta: input.quantityDelta,
@@ -415,6 +417,8 @@ export default function App() {
         productQnt: number;
         productUnitPrice: string;
         productSalePrice: string;
+        productCategory?: string;
+        expirationDate?: string | null;
       }>,
     ) => {
       const { sheet } = await scannerApi.createSheet({
@@ -432,6 +436,8 @@ export default function App() {
           productDescription: row.productDescription,
           detectedSalePrice: row.productSalePrice,
           detectedUnitPrice: row.productUnitPrice,
+          productCategory: row.productCategory,
+          expirationDate: row.expirationDate,
           quantityDelta: row.productQnt,
           duplicateBehavior: "increment",
           priceSource: "import",

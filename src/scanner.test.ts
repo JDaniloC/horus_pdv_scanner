@@ -148,3 +148,44 @@ describe("Contabilização ao Vivo e Unificação Multi-Celulares (SheetStore)",
     expect(merged.stats.conflictsResolved).toBe(1);
   });
 });
+
+import {
+  addDaysIsoDate,
+  formatExpirationPtBr,
+  normalizeExpirationDate,
+} from "../src/utils/expirationDate";
+
+describe("Data de Vencimento (Nulo, +30 dias e Data Específica)", () => {
+  it("calcula +30 dias, aceita nulo e formata corretamente para pt-BR", () => {
+    const base = new Date(2026, 10, 22); // 22/11/2026
+    const plus30 = addDaysIsoDate(30, base);
+    expect(plus30).toBe("2026-12-22");
+    expect(formatExpirationPtBr(plus30)).toBe("22/12/2026");
+
+    expect(normalizeExpirationDate(null, base)).toBeNull();
+    expect(normalizeExpirationDate("", base)).toBeNull();
+    expect(normalizeExpirationDate("30_days", base)).toBe("2026-12-22");
+    expect(normalizeExpirationDate("15/01/2027", base)).toBe("2027-01-15");
+  });
+
+  it("salva e atualiza data de vencimento (+30 dias ou nulo) no SheetStore", async () => {
+    const store = new SheetStore({ persistToDisk: false });
+    const sheet = store.createSheet({ name: "Teste Vencimento" });
+
+    const scanWithExp = await store.recordLiveScan({
+      sheetId: sheet.id,
+      productCode: "7896213004088",
+      detectedSalePrice: "5,49",
+      expirationDate: "30_days",
+      deviceId: "cel-1",
+      deviceName: "Celular 01",
+    });
+
+    expect(scanWithExp.item.expirationDate).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+
+    const updatedNull = store.updateItem(sheet.id, scanWithExp.item.id, {
+      expirationDate: null,
+    });
+    expect(updatedNull?.item.expirationDate).toBeNull();
+  });
+});

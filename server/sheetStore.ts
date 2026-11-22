@@ -20,6 +20,7 @@ import type {
   SheetSummary,
 } from "../src/types/scanner.ts";
 import { lookupBarcodeCatalog, normalizeBarcode } from "./barcodeCatalogLookup.ts";
+import { normalizeExpirationDate } from "../src/utils/expirationDate.ts";
 
 interface PersistedDatabase {
   sheets: SheetDetail[];
@@ -511,6 +512,11 @@ export class SheetStore {
       this.categories.add(explicitCategory);
     }
 
+    const hasExplicitExpiration = payload.expirationDate !== undefined;
+    const normalizedExpiration = hasExplicitExpiration
+      ? normalizeExpirationDate(payload.expirationDate)
+      : undefined;
+
     // Verifica se o produto já existe nesta planilha
     const existingItem =
       behavior !== "new_row"
@@ -541,6 +547,10 @@ export class SheetStore {
 
       if (explicitCategory) {
         existingItem.productCategory = explicitCategory;
+      }
+
+      if (hasExplicitExpiration) {
+        existingItem.expirationDate = normalizedExpiration ?? null;
       }
 
       if (packPriceNum > 0 && packQtyNum > 0) {
@@ -653,6 +663,7 @@ export class SheetStore {
       productImageUrl: payload.productImageUrl?.trim() || catalog.productImageUrl || "",
       unitType: catalog.suggestedUnitType ?? "UN",
       catalogSource: catalog.found ? catalog.source : "Cadastro Instantâneo",
+      expirationDate: normalizedExpiration ?? null,
       ...(packPriceNum > 0 && packQtyNum > 0
         ? { packPrice: formatMoneyPtBr(packPriceNum), packQuantity: packQtyNum }
         : {}),
@@ -708,6 +719,7 @@ export class SheetStore {
         | "brand"
         | "packPrice"
         | "packQuantity"
+        | "expirationDate"
       >
     > & { deviceName?: string },
   ): { item: ScannedProductItem; sheet: SheetSummary } | null {
@@ -740,6 +752,9 @@ export class SheetStore {
     }
     if (updates.brand !== undefined) {
       item.brand = updates.brand.trim();
+    }
+    if (updates.expirationDate !== undefined) {
+      item.expirationDate = normalizeExpirationDate(updates.expirationDate);
     }
     if (updates.packPrice !== undefined) {
       const p = parseMoneyPtBr(updates.packPrice);
@@ -885,6 +900,11 @@ export class SheetStore {
         }
         if (!existing.productCategory && item.productCategory) {
           existing.productCategory = item.productCategory;
+        }
+        if (item.expirationDate) {
+          if (!existing.expirationDate || item.expirationDate < existing.expirationDate) {
+            existing.expirationDate = item.expirationDate;
+          }
         }
         if (item.updatedAt > existing.updatedAt) {
           existing.updatedAt = item.updatedAt;

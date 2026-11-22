@@ -46,6 +46,7 @@ export interface ScannedProductItem {
   catalogSource: string;
   packPrice?: string;
   packQuantity?: number;
+  expirationDate?: string | null;
   lastCapturedByDeviceId: string;
   lastCapturedByDeviceName: string;
   captureCount: number;
@@ -94,6 +95,7 @@ export interface LiveScanPayload {
   detectedUnitPrice?: string;
   packPrice?: string;
   packQuantity?: number;
+  expirationDate?: string | null;
   productName?: string;
   productSupplier?: string;
   productDescription?: string;

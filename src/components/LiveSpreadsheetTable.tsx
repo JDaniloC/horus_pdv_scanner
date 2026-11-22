@@ -6,6 +6,7 @@
  */
 
 import {
+  Calendar,
   Check,
   Download,
   Edit3,
@@ -29,6 +30,7 @@ import {
   calculateSalePriceFromMargin,
   calculateUnitCostFromPack,
 } from "@/utils/packPricing";
+import { addDaysIsoDate, formatExpirationPtBr } from "@/utils/expirationDate";
 
 interface LiveSpreadsheetTableProps {
   sheet: SheetDetail;
@@ -64,6 +66,7 @@ export default function LiveSpreadsheetTable({
     packPrice: string;
     packQuantity: string;
     marginPercent: string;
+    expirationDate: string;
   }>({
     productName: "",
     productSupplier: "",
@@ -74,6 +77,7 @@ export default function LiveSpreadsheetTable({
     packPrice: "",
     packQuantity: "",
     marginPercent: "35",
+    expirationDate: "",
   });
 
   const filteredItems = useMemo(() => {
@@ -119,6 +123,7 @@ export default function LiveSpreadsheetTable({
       packPrice: item.packPrice ?? "",
       packQuantity: item.packQuantity ? String(item.packQuantity) : "",
       marginPercent: existingMargin !== null && existingMargin > 0 ? String(Math.round(existingMargin)) : "35",
+      expirationDate: item.expirationDate ?? "",
     });
   };
 
@@ -173,6 +178,7 @@ export default function LiveSpreadsheetTable({
       productSalePrice: editDraft.productSalePrice,
       packPrice: editDraft.packPrice || undefined,
       packQuantity: Number.isFinite(parsedPackQty) && parsedPackQty > 0 ? parsedPackQty : undefined,
+      expirationDate: editDraft.expirationDate.trim() ? editDraft.expirationDate.trim() : null,
     });
     setEditingItemId(null);
   };
@@ -473,6 +479,41 @@ export default function LiveSpreadsheetTable({
                           />
                         </label>
                       </div>
+
+                      <div className="item-exp-edit-row">
+                        <span className="exp-edit-label">
+                          <Calendar size={13} />
+                          <span>Vencimento:</span>
+                        </span>
+                        <div className="exp-edit-controls">
+                          <button
+                            type="button"
+                            onClick={() => setEditDraft((d) => ({ ...d, expirationDate: "" }))}
+                            className={`mini-chip-btn ${!editDraft.expirationDate ? "is-selected" : ""}`}
+                          >
+                            Nulo
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setEditDraft((d) => ({ ...d, expirationDate: addDaysIsoDate(30) }))
+                            }
+                            className={`mini-chip-btn ${
+                              editDraft.expirationDate === addDaysIsoDate(30) ? "is-selected" : ""
+                            }`}
+                          >
+                            +30 dias
+                          </button>
+                          <input
+                            type="date"
+                            value={editDraft.expirationDate}
+                            onChange={(e) =>
+                              setEditDraft((d) => ({ ...d, expirationDate: e.target.value }))
+                            }
+                            className="scanner-input exp-date-inline font-mono"
+                          />
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="item-prices-group">
@@ -496,6 +537,18 @@ export default function LiveSpreadsheetTable({
                           <span>{margin > 0 ? `+${margin}%` : `${margin}%`}</span>
                         </div>
                       ) : null}
+                      <div
+                        className={`price-pill ${
+                          item.expirationDate ? "exp-info-pill" : "exp-null-pill"
+                        }`}
+                      >
+                        <Calendar size={12} />
+                        <span>
+                          {item.expirationDate
+                            ? `Venc: ${formatExpirationPtBr(item.expirationDate)}`
+                            : "Venc: Nulo"}
+                        </span>
+                      </div>
                     </div>
                   )}
 

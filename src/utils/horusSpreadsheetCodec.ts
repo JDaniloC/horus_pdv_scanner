@@ -7,6 +7,7 @@
 import { readSheet } from "read-excel-file/browser";
 import writeXlsxFile, { type SheetData } from "write-excel-file/browser";
 import type { ScannedProductItem } from "@/types/scanner";
+import { formatExpirationPtBr, normalizeExpirationDate } from "@/utils/expirationDate";
 
 export interface ImportedSpreadsheetRow {
   productCode: string;
@@ -17,6 +18,7 @@ export interface ImportedSpreadsheetRow {
   productUnitPrice: string;
   productSalePrice: string;
   productCategory?: string;
+  expirationDate?: string | null;
 }
 
 const HEADER_ALIASES: Record<string, keyof ImportedSpreadsheetRow> = {
@@ -51,6 +53,11 @@ const HEADER_ALIASES: Record<string, keyof ImportedSpreadsheetRow> = {
   productsaleprice: "productSalePrice",
   categoria: "productCategory",
   productcategory: "productCategory",
+  vencimento: "expirationDate",
+  datavencimento: "expirationDate",
+  datadevencimento: "expirationDate",
+  validade: "expirationDate",
+  expirationdate: "expirationDate",
 };
 
 function normalizeHeader(value: unknown): string {
@@ -75,7 +82,7 @@ function sanitizeFileSlug(rawName: string): string {
 }
 
 /**
- * Gera e faz download do arquivo Excel (.xlsx) no exato layout do modelo oficial do Horus PDV (+ Categoria).
+ * Gera e faz download do arquivo Excel (.xlsx) no exato layout do modelo oficial do Horus PDV (+ Categoria e Vencimento).
  */
 export async function exportToHorusPdvXlsx(
   items: ScannedProductItem[],
@@ -91,6 +98,7 @@ export async function exportToHorusPdvXlsx(
       { value: "PrecoCusto", fontWeight: "bold" },
       { value: "PrecoVenda", fontWeight: "bold" },
       { value: "Categoria", fontWeight: "bold" },
+      { value: "Vencimento", fontWeight: "bold" },
     ],
     ...items.map((item) => [
       { type: String, value: String(item.productCode || "") },
@@ -113,6 +121,7 @@ export async function exportToHorusPdvXlsx(
             : "1,00",
       },
       { type: String, value: String(item.productCategory || "Mercearia") },
+      { type: String, value: formatExpirationPtBr(item.expirationDate) },
     ]),
   ];
 
@@ -136,6 +145,7 @@ export function exportToHorusPdvCsv(
     "PrecoCusto",
     "PrecoVenda",
     "Categoria",
+    "Vencimento",
   ];
 
   const escapeCsvCell = (val: string | number): string => {
@@ -157,6 +167,7 @@ export function exportToHorusPdvCsv(
         item.productSalePrice && item.productSalePrice !== "0,00" ? item.productSalePrice : "1,00",
       ),
       escapeCsvCell(item.productCategory || "Mercearia"),
+      escapeCsvCell(formatExpirationPtBr(item.expirationDate)),
     ].join(";"),
   );
 
@@ -224,6 +235,7 @@ export async function parseExternalSpreadsheetFile(
     "productUnitPrice",
     "productSalePrice",
     "productCategory",
+    "expirationDate",
   ];
   const usePositional = columnMap.size < 2;
 
@@ -258,6 +270,7 @@ export async function parseExternalSpreadsheetFile(
       productUnitPrice: getCell("productUnitPrice") || "0,00",
       productSalePrice: getCell("productSalePrice") || "0,00",
       productCategory: getCell("productCategory") || undefined,
+      expirationDate: normalizeExpirationDate(getCell("expirationDate")),
     });
   }
 

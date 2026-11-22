@@ -1961,3 +1961,113 @@ button {
   font-size: 0.71rem;
   font-weight: 700;
 }
+
+/* Controle de Data de Vencimento (Nulo, +30 dias, Data) */
+.expiration-instant-box {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  padding: 0.6rem 0.75rem;
+  border-radius: var(--radius-md);
+  background: rgba(15, 23, 42, 0.55);
+  border: 1px solid var(--border-subtle);
+}
+
+.expiration-header-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.expiration-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: var(--text-secondary);
+}
+
+.expiration-preview-badge {
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.71rem;
+  font-weight: 700;
+  color: #38bdf8;
+}
+
+.expiration-modes-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.exp-mode-btn {
+  padding: 0.36rem 0.7rem;
+  border-radius: var(--radius-sm);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
+  font-size: 0.74rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.exp-mode-btn.is-selected {
+  background: var(--sky-soft);
+  border-color: var(--sky-500);
+  color: #7dd3fc;
+  font-weight: 700;
+}
+
+.exp-date-input {
+  width: auto;
+  min-width: 145px;
+  padding: 0.34rem 0.55rem;
+  font-size: 0.76rem;
+}
+
+.item-exp-edit-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.45rem;
+  padding-top: 0.25rem;
+}
+
+.exp-edit-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+.exp-edit-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.exp-date-inline {
+  width: auto;
+  padding: 0.24rem 0.45rem;
+  font-size: 0.73rem;
+}
+
+.exp-info-pill {
+  background: rgba(14, 165, 233, 0.14);
+  color: #7dd3fc;
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.71rem;
+  font-weight: 600;
+}
+
+.exp-null-pill {
+  background: rgba(148, 163, 184, 0.1);
+  color: var(--text-muted);
+  font-size: 0.7rem;
+}

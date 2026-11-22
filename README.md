@@ -17,6 +17,7 @@ Todas as capturas alimentam em tempo real planilhas colaborativas sincronizadas 
    - **Quantidade & Preço Unitário no Leitor**: Logo abaixo da câmera ficam os campos diretos de `Quantidade` (com botões `-`/`+` e atalhos `1x`, `6x`, `12x`, `24x`), `Custo Unitário` e `Preço Unitário de Venda`.
    - **Calculadora de Fardo / Caixa**: Informe o **preço pago no fardo** e a **quantidade que vem no fardo** para deduzir automaticamente o `PrecoCusto` unitário e sugerir o `PrecoVenda` com base na margem desejada (`+25%`, `+30%`, `+40%`, `+50%` ou personalizada).
    - **Categoria na Hora**: Selecione ou crie uma nova categoria diretamente no painel do leitor (ou ao editar um item), sincronizada em tempo real com todos os celulares conectados.
+   - **Data de Vencimento (Nulo, +30 dias ou Data Específica)**: Defina com 1 toque se o item não possui vencimento (`Nulo`), se vence em `+30 dias`, ou informe uma data exata.
 
 3. **Contabilização Inteligente**:
    - **Soma Automática**: Ao passar novamente por um código já lido, soma a quantidade informada e atualiza o preço caso um novo valor seja detectado na etiqueta (com bipe sonoro de supermercado e vibração).
@@ -28,7 +29,7 @@ Todas as capturas alimentam em tempo real planilhas colaborativas sincronizadas 
 
 5. **Exportação 100% Compatível com o Horus PDV**:
    - Gera arquivos `.xlsx` e `.csv` com as colunas esperadas pelo `ProductImportDrawer` do Horus PDV:
-     `Codigo` | `Nome` | `Fornecedor` | `Descricao` | `Quantidade` | `PrecoCusto` | `PrecoVenda` | `Categoria`
+     `Codigo` | `Nome` | `Fornecedor` | `Descricao` | `Quantidade` | `PrecoCusto` | `PrecoVenda` | `Categoria` | `Vencimento`
 
 ---
 
